@@ -1,8 +1,8 @@
 ---
 dataset:
   training:
-    data_root: '/kaggle/input/coco-vqa-train/train/train2014' # ../../../input/coco-vqa-train/train
-    csv_file: '/kaggle/input/coco-vqa-train/train/train.csv'
+    data_root: '/kaggle/input/big-vqa-train/coco_textvqa/imgs' # ../../../input/coco-vqa-train/train
+    csv_file: '/kaggle/input/big-vqa-train/train.csv'
   validation:
     data_root: '/kaggle/input/coco-vqa-val/val/val2014'
     csv_file: '/kaggle/input/coco-vqa-val/val/val.csv'

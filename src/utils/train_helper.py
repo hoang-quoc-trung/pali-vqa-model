@@ -213,7 +213,7 @@ def create_train_state(
         variables, lambda x: x in ["VisionTransformer_0"], optimizer_name
     )
 
-    # Define some optimizer, default is adam optimizer
+    # Define some optimizer, default is adafactor optimizer
     if optimizer_name == 'lion':
         """ The Lion optimizer.
         

@@ -13,9 +13,7 @@ def bleu_score(logits, targets):
         ref = vocab_encoder_decoder.decode(t)
         hypo = vocab_encoder_decoder.decode(l)
         ref = ref.split()
-        # print("REF:", ref)
         hypo = hypo.split()
-        # print("HYPO:", hypo)
         return sentence_bleu([ref], hypo)
     for l, t in zip(predicted_tokens, targets):
         mean_blue_score += single_bleu_score(l, t)
@@ -31,6 +29,7 @@ def cider_metric(logits, targets):
     def convert_to_text(logit, target):
         ref = vocab_encoder_decoder.decode(target)
         hypo = vocab_encoder_decoder.decode(logit)
+        # print(f"Y: {ref} | Yhat: {hypo}")
         return ref, hypo
     y_arr = []
     y_hat_arr = []
