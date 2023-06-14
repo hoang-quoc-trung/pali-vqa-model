@@ -1,2 +1,3 @@
 *.npz
 t5_1_1_base
+flan_t5_base
