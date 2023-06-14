@@ -70,9 +70,9 @@ def init_pali_params(
     Returns:
         dict: a dictionary of parameters for the Pali model
     """
+    
     # Get hyperparameters
     hpparams = config["hyperparams"]
-
     # Dummy inputs, Pali model requires 4 inputs: 1 for image and 3 for text
     dummy_inputs = {
         "images": jnp.ones(
@@ -88,10 +88,9 @@ def init_pali_params(
             shape=(hpparams["train_batch_size"], hpparams["decoder_target_tokens"])
         ),
     }
-
     # Init parameters
     variables = model.init(jax.random.PRNGKey(seed), **dummy_inputs)
-
+    
     return variables
 
 
@@ -143,7 +142,7 @@ def create_train_state(
     config: dict,
     model: nn.Module,
     variables: dict,
-    optimizer_name: str = "adam",
+    optimizer_name: str = "adafactor",
 ):
     """Create train state for Pali model with ViT parameters is frozen
 
@@ -159,9 +158,9 @@ def create_train_state(
     Returns:
         flax.training.train_state.TrainState: train state for Pali model
     """
+    
     # Get hyperparameters
     hpparams = config["hyperparams"]
-
     # Set training on custom layers by create zero_grads function when performing gradient update
     def zero_grads():
         '''
@@ -174,7 +173,7 @@ def create_train_state(
         return optax.GradientTransformation(init_fn, update_fn)
 
     # Create the mask for trainable parameters, freeze params is "zero" and trainable params is "<optimizers_name>"
-    def create_mask(params, label_fn, optimizer_name="adam"):
+    def create_mask(params, label_fn, optimizer_name="adafactor"):
         def _map(params, mask, label_fn):
             for k in params:
                 if label_fn(k):
@@ -191,7 +190,14 @@ def create_train_state(
 
     # Simple switch case for optimizer
     def get_optimizer(optimizer_name):
-        optim = {"adam": optax.adam, "sgd": optax.sgd}
+        optim = {
+            "sgd": optax.sgd, 
+            "lion": optax.lion,
+            "adam": optax.adam,
+            "adamw": optax.adamw,
+            "adagrad": optax.adagrad,
+            "adafactor": optax.adafactor,
+        }
         optim = optim.get(optimizer_name, None)
         if optim is None:
             raise ValueError(
@@ -206,29 +212,156 @@ def create_train_state(
     trainable_mask = create_mask(
         variables, lambda x: x in ["VisionTransformer_0"], optimizer_name
     )
-    tx = optax.multi_transform(
-        {
-            "adam": get_optimizer(optimizer_name)(hpparams["learning_rate"]),
-            "zero": zero_grads(),
-        },
-        trainable_mask,
-    )
+
+    # Define some optimizer, default is adam optimizer
+    if optimizer_name == 'lion':
+        """ The Lion optimizer.
+        
+        Lion is discovered by symbolic program search. Unlike most adaptive optimizers
+        such as AdamW, Lion only tracks momentum, making it more memory-efficient.
+        The update of Lion is produced through the sign operation, resulting in a
+        larger norm compared to updates produced by other optimizers such as SGD and
+        AdamW. A suitable learning rate for Lion is typically 3-10x smaller than that
+        for AdamW, the weight decay for Lion should be in turn 3-10x larger than that
+        for AdamW to maintain a similar strength (lr * wd).
+        
+        References:
+            Chen et al, 2023: https://arxiv.org/abs/2302.06675
+        """
+        tx = optax.multi_transform(
+            {
+                'lion': get_optimizer(optimizer_name)(
+                    learning_rate=hpparams["learning_rate"],
+                    weight_decay=1e-2
+                ),
+                'zero': zero_grads(),
+            },
+            trainable_mask,
+        )
+
+    elif optimizer_name == 'adafactor':
+        """ The Adafactor optimizer.
+        
+        Adafactor is an adaptive learning rate optimizer that focuses on fast
+        training of large scale neural networks. It saves memory by using a factored
+        estimate of the second order moments used to scale gradients.
+
+        References:
+            Shazeer and Stern, 2018: https://arxiv.org/abs/1804.04235
+        """
+        tx = optax.multi_transform(
+            {
+                'adafactor': get_optimizer(optimizer_name)(
+                    learning_rate=hpparams["learning_rate"],
+                    decay_rate=0.8,
+                    eps=1e-30,
+                    decay_offset=0
+                ),
+                'zero': zero_grads(),
+            },
+            trainable_mask,
+        )
+        
+    elif optimizer_name == 'adagrad':
+        """ The Adagrad optimizer.
+        
+        Adagrad is an algorithm for gradient based optimization that anneals the
+        learning rate for each parameter during the course of training.
+        
+        WARNING: Adagrad's main limit is the monotonic accumulation of squared
+        gradients in the denominator: since all terms are >0, the sum keeps growing
+        during training and the learning rate eventually becomes vanishingly small.
+        
+        References:
+            Duchi et al, 2011: https://jmlr.org/papers/v12/duchi11a.html
+        """
+        tx = optax.multi_transform(
+            {
+                'adagrad': get_optimizer(optimizer_name)(
+                    learning_rate=hpparams["learning_rate"],
+                    initial_accumulator_value=0.1,
+                    eps=1e-7
+                ),
+                'zero': zero_grads(),
+            },
+            trainable_mask,
+        )
+        
+    elif optimizer_name == 'adamw':
+        """ Adam with weight decay regularization.
+        
+        AdamW uses weight decay to regularize learning towards small weights, as
+        this leads to better generalization. In SGD you can also use L2 regularization
+        to implement this as an additive loss term, however L2 regularization
+        does not behave as intended for adaptive gradient algorithms such as Adam.
+        
+        References:
+            Loshchilov et al, 2019: https://arxiv.org/abs/1711.05101
+        """
+        tx = optax.multi_transform(
+            {
+                'adamw': get_optimizer(optimizer_name)(
+                    learning_rate=hpparams["learning_rate"],
+                    b1=0.9,
+                    b2=0.999,
+                    eps=1e-8,
+                    weight_decay=1e-4
+                ),
+                'zero': zero_grads(),
+            },
+            trainable_mask,
+        )
+        
+    elif optimizer_name == 'sgd':
+        """ A canonical Stochastic Gradient Descent optimizer.
+        
+        This implements stochastic gradient descent. It also includes support for
+        momentum, and nesterov acceleration, as these are standard practice when
+        using stochastic gradient descent to train deep neural networks.
+
+        References:
+            Sutskever et al, 2013: http://proceedings.mlr.press/v28/sutskever13.pdf
+        """
+        tx = optax.multi_transform(
+            {
+                'sgd': get_optimizer(optimizer_name)(
+                    learning_rate=hpparams["learning_rate"],
+                    momentum=None,
+                    nesterov=False,
+                ),
+                'zero': zero_grads(),
+            },
+            trainable_mask,
+        )
+        
+    else:
+        """ The classic Adam optimizer.
+        
+        Adam is an SGD variant with gradient scaling adaptation. The scaling
+        used for each parameter is computed from estimates of first and second-order
+        moments of the gradients (using suitable exponential moving averages).
+        
+        References:
+            Kingma et al, 2014: https://arxiv.org/abs/1412.6980
+        """
+        tx = optax.multi_transform(
+            {
+                'adam': get_optimizer(optimizer_name)(
+                    learning_rate=hpparams["learning_rate"],
+                    b1=0.9,
+                    b2=0.999,
+                    eps=1e-8
+                ),
+                'zero': zero_grads(),
+            },
+            trainable_mask,
+        )
     
     # tx = optax.chain(
     #     optax.clip_by_global_norm(hpparams["grad_norm_clip"]),
     #     optax.adamw(
     #         learning_rate=hpparams["learning_rate"],
     #     ),
-    # )
-    
-    # tx = optax.lion(
-    #     learning_rate=hpparams["learning_rate"], 
-    #     weight_decay=1e-2, #0.01
-    # )
-    
-    # tx = optax.adamw(
-    #     hpparams["learning_rate"], b1=0.9, b2=0.98, eps=1e-9,
-    #     weight_decay=1e-2
     # )
 
     # Create the train state

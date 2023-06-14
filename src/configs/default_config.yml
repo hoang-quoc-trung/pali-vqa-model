@@ -17,24 +17,24 @@ hyperparams:
   train_batch_size: 64
   val_batch_size: 64
   learning_rate: 0.0001
-  momentum: 0.9
-  grad_norm_clip: 1.0
+  # momentum: 0.9
+  # grad_norm_clip: 1.0
   num_steps: 50000
   save_steps: 1000
   val_steps: 100
-  save_checkpoint_dir: '/kaggle/working/PaLI-model/src/checkpoints/...'
-  load_checkpoint_dir: '/kaggle/working/PaLI-model/src/checkpoints/...'
-  load_params_dir: '/kaggle/working/PaLI-model/src/checkpoints/params/...'
-  save_params_dir: '/kaggle/working/PaLI-model/src/checkpoints/params'
-  save_history_dir: '/kaggle/working/PaLI-model/src/checkpoints/history_log'
+  save_checkpoint_dir: '...'
+  load_checkpoint_dir: '...'
+  load_params_dir: '...'
+  save_params_dir: '/kaggle/working/pali-model/src/checkpoints/params'
+  save_history_dir: '/kaggle/working/pali-model/src/checkpoints/history_log'
 t5:
   gin_file: 'models/t5x/t5x/examples/t5/t5_1_1/base.gin'
   dropout_rate: 0.0
   vit_patches_embs_size: 50
-  pretrained_path: '/kaggle/working/PaLI-model/pretrained/checkpoint_1184000'
+  pretrained_path: '/kaggle/working/pali-model/pretrained/flan_t5_base'
   vocab_size: 32128
 vit:
   num_classes: null
   model_name: 'ViT-B_32'
   classifier: "token_unpooled"
-  pretrained_path: '/kaggle/working/PaLI-model/pretrained/ViT-B_32.npz' # '../pretrained/ViT-B_32.npz'
+  pretrained_path: '/kaggle/working/pali-model/pretrained/ViT-B_32.npz' # '../pretrained/ViT-B_32.npz'

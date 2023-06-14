@@ -64,7 +64,7 @@ def main(args):
     # Load pretrained model
     LOGGER.info("Loading ViT pretrained model")
     variables = load_ViT_pretrained(cfg, variables)
-    LOGGER.info("Loading T5x pretrained model")
+    LOGGER.info("Loading Flan-T5 pretrained model")
     variables = load_T5x_pretrained(cfg, variables)
 
 #--------------------------------------------------------------------------------------------
@@ -95,7 +95,7 @@ def main(args):
             cfg,
             model,
             variables,
-            optimizer_name="adam",
+            optimizer_name="adafactor",
         )
     else:
         # Create the train state
@@ -103,7 +103,7 @@ def main(args):
             cfg,
             model,
             variables,
-            optimizer_name="adam",
+            optimizer_name="adafactor",
         )  
 
     # Init dataset
@@ -146,10 +146,9 @@ def main(args):
     val_steps = val_ds_len if hpparams["val_steps"] is None else hpparams["val_steps"]
     best_val_cider = 0.0
     train_ds_iter, val_ds_iter = iter(train_ds), iter(val_ds)
-    # num_steps=num_steps+18000
     with tqdm(total=num_steps) as pbar:
         train_cider, train_bleu, train_loss = [], [], []
-        for step in range(1, num_steps + 1): #18001
+        for step in range(1, num_steps + 1):
             # Train the model
             X, y = next(train_ds_iter)
             state, loss, cider, bleu = train_step(state, X, y)
