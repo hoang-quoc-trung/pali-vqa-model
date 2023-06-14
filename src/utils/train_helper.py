@@ -1,0 +1,388 @@
+import csv
+import os
+import subprocess as sp
+
+import jax
+import optax
+import orbax.checkpoint as orbax
+from flax import linen as nn
+from flax.core import FrozenDict, freeze, frozen_dict
+from flax.training import checkpoints, train_state
+from jax import numpy as jnp
+import numpy as np
+from jax.lib import xla_bridge
+from jax.config import config
+config.update("jax_debug_nans", True)
+from models.pali import (
+    cider_metric,
+    bleu_score,
+    cross_entropy_loss,
+    get_t5x_pretrained,
+    get_vit_pretrained,
+)
+
+
+def hardware_setting(
+    args,
+):
+    # Set memory growth for GPU
+    set_memory_growth = True
+
+    def get_hardware_backend():
+        return xla_bridge.get_backend().platform
+
+    def get_gpu_memory():
+        command = "nvidia-smi --query-gpu=memory.free --format=csv"
+        memory_free_info = (
+            sp.check_output(command.split()).decode("ascii").split("\n")[:-1][1:]
+        )
+        memory_free_values = [int(x.split()[0]) for i, x in enumerate(memory_free_info)]
+        return memory_free_values
+
+    if get_hardware_backend() == "cpu":
+        return "cpu"
+    elif get_hardware_backend() == "gpu":
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu_id)
+        if set_memory_growth:
+            os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+        else:
+            # set max GPU memory usage
+            total_gpu_memory = get_gpu_memory()[args.gpu_id]
+            memory_limit = (
+                total_gpu_memory * args.gpu_memory_fraction / total_gpu_memory
+            )
+            os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = str(memory_limit)
+        return "gpu"
+
+
+def init_pali_params(
+    config: dict,
+    model: nn.Module,
+    seed: int = 42,
+):
+    """Initialize parameters for the model
+
+    Args:
+        cfg (dict): config file load from yaml
+        model (jax.nn.Module): Pali model
+        seed (int, optional): Seed for random number generator. Defaults to 42.
+
+    Returns:
+        dict: a dictionary of parameters for the Pali model
+    """
+    # Get hyperparameters
+    hpparams = config["hyperparams"]
+
+    # Dummy inputs, Pali model requires 4 inputs: 1 for image and 3 for text
+    dummy_inputs = {
+        "images": jnp.ones(
+            shape=(hpparams["train_batch_size"],) + tuple(hpparams["image_size"]) + (3,)
+        ),
+        "encoder_input_tokens": jnp.ones(
+            shape=(hpparams["train_batch_size"], hpparams["encoder_input_tokens"])
+        ),
+        "decoder_input_tokens": jnp.ones(
+            shape=(hpparams["train_batch_size"], hpparams["decoder_input_tokens"])
+        ),
+        "decoder_target_tokens": jnp.ones(
+            shape=(hpparams["train_batch_size"], hpparams["decoder_target_tokens"])
+        ),
+    }
+
+    # Init parameters
+    variables = model.init(jax.random.PRNGKey(seed), **dummy_inputs)
+
+    return variables
+
+
+def load_ViT_pretrained(
+    config: dict,
+    variables: dict,
+):
+    """Load pretrained ViT parameters
+
+    Args:
+        config (dict): config file load from yaml
+        variables (dict): a dictionary of parameters for the Pali model
+    Returns:
+        dict: a dictionary of parameters for the Pali model
+    """
+    # Load pretrained ViT parameters
+    vit_params = get_vit_pretrained(config)
+    # Replace ViT parameters in Pali model
+    variables = variables.unfreeze()
+    variables["params"]["VisionTransformer_0"] = vit_params["params"]
+    variables = freeze(variables)
+
+    return variables
+
+
+def load_T5x_pretrained(
+    config: dict,
+    variables: dict,
+):
+    """Load pretrained T5x parameters
+
+    Args:
+        config (dict): config file load from yaml
+        variables (dict): a dictionary of parameters for the Pali model
+    Returns:
+        dict: a dictionary of parameters for the Pali model
+    """
+    # Load pretrained ViT parameters
+    t5x_params = get_t5x_pretrained(config)
+    # Replace ViT parameters in Pali model
+    variables = variables.unfreeze()
+    variables["params"]["MergeT5_0"] = t5x_params["params"]
+    variables = freeze(variables)
+
+    return variables
+
+
+def create_train_state(
+    config: dict,
+    model: nn.Module,
+    variables: dict,
+    optimizer_name: str = "adam",
+):
+    """Create train state for Pali model with ViT parameters is frozen
+
+    Args:
+        config (dict): config file load from yaml
+        model (nn.Module): Pali model
+        variables (dict): a dictionary of parameters for the Pali model
+        optimizer_name (str, optional): Optimizer name used for training. Defaults to "adam".
+
+    Raises:
+        ValueError: Optimizer name is not supported, currently only support "adam" and "sgd"
+
+    Returns:
+        flax.training.train_state.TrainState: train state for Pali model
+    """
+    # Get hyperparameters
+    hpparams = config["hyperparams"]
+
+    # Set training on custom layers by create zero_grads function when performing gradient update
+    def zero_grads():
+        '''
+        Zero out the previous gradient computation
+        '''
+        def init_fn(_):
+            return ()
+        def update_fn(updates, state, params=None):
+            return jax.tree_map(jnp.zeros_like, updates), ()
+        return optax.GradientTransformation(init_fn, update_fn)
+
+    # Create the mask for trainable parameters, freeze params is "zero" and trainable params is "<optimizers_name>"
+    def create_mask(params, label_fn, optimizer_name="adam"):
+        def _map(params, mask, label_fn):
+            for k in params:
+                if label_fn(k):
+                    mask[k] = "zero"
+                else:
+                    if isinstance(params[k], FrozenDict):
+                        mask[k] = {}
+                        _map(params[k], mask[k], label_fn)
+                    else:
+                        mask[k] = optimizer_name
+        mask = {}
+        _map(params, mask, label_fn)
+        return frozen_dict.freeze(mask)
+
+    # Simple switch case for optimizer
+    def get_optimizer(optimizer_name):
+        optim = {"adam": optax.adam, "sgd": optax.sgd}
+        optim = optim.get(optimizer_name, None)
+        if optim is None:
+            raise ValueError(
+                "Not implemented optimizer, the optimizer should be in {}".format(
+                    optim.keys()
+                )
+            )
+        return optim
+
+    # If you want to freeze some layers, pass it to the lambda function
+    # Lambda function should return True if the layer's name is in the list for freezing
+    trainable_mask = create_mask(
+        variables, lambda x: x in ["VisionTransformer_0"], optimizer_name
+    )
+    tx = optax.multi_transform(
+        {
+            "adam": get_optimizer(optimizer_name)(hpparams["learning_rate"]),
+            "zero": zero_grads(),
+        },
+        trainable_mask,
+    )
+    
+    # tx = optax.chain(
+    #     optax.clip_by_global_norm(hpparams["grad_norm_clip"]),
+    #     optax.adamw(
+    #         learning_rate=hpparams["learning_rate"],
+    #     ),
+    # )
+    
+    # tx = optax.lion(
+    #     learning_rate=hpparams["learning_rate"], 
+    #     weight_decay=1e-2, #0.01
+    # )
+    
+    # tx = optax.adamw(
+    #     hpparams["learning_rate"], b1=0.9, b2=0.98, eps=1e-9,
+    #     weight_decay=1e-2
+    # )
+
+    # Create the train state
+    return train_state.TrainState.create(apply_fn=model.apply, tx=tx, params=variables)
+
+
+def get_train_val_step(
+    config: dict,
+):
+    """Get training and evaluating step for Pali model
+
+    Args:
+        config (dict): config file load from yaml
+
+    Returns:
+        function: training step function and evaluating step function
+    """
+    VOCAB_SIZE = config["t5"]["vocab_size"]
+
+    # Define the training, evaluating step with @jax.jit for faster training
+    @jax.jit
+    def _train_step(state: train_state.TrainState, X, y):
+        def loss_fn(state, params, X, y):
+            outputs = state.apply_fn(params, **X)
+            logits = outputs["logits"]
+            loss = cross_entropy_loss(logits, y, vocab_size=VOCAB_SIZE)
+            return loss, logits
+
+        # Create Gradient Function by passing in the function
+        grad_fn = jax.value_and_grad(
+            loss_fn,
+            argnums=1,  # Choose the parameter 'params' in 'loss_fn(state, params, X, y)'
+            has_aux=True,  # Return loss and logits for calculating accuracy
+        )
+        # Calculate the loss and gradients
+        (loss, logits), grads = grad_fn(state, state.params, X, y)
+        # Update Parameters
+        new_state = state.apply_gradients(grads=grads)
+        return new_state, loss, logits
+
+    def train_step(state: train_state.TrainState, X, y):
+        new_state, loss, logits = _train_step(state, X, y)
+        cider = float(cider_metric(logits, y)["CIDEr"])
+        bleu = float(bleu_score(logits, y))
+        return new_state, loss, cider, bleu
+
+    @jax.jit
+    def _eval_step(state: train_state.TrainState, X, y):
+        outputs = state.apply_fn(state.params, **X)
+        logits = outputs["logits"]
+        loss = cross_entropy_loss(logits, y, vocab_size=VOCAB_SIZE)
+        return loss, logits
+
+    def eval_step(state: train_state.TrainState, X, y):
+        loss, logits = _eval_step(state, X, y)
+        cider = float(cider_metric(logits, y)["CIDEr"])
+        bleu = float(bleu_score(logits, y))
+        return loss, cider, bleu
+
+    return train_step, eval_step
+
+
+def save_checkpoint_state(
+    config: dict,
+    state: train_state.TrainState,
+):
+    """Save training state and parameters for Pali model
+
+    Args:
+        config (dict): config file load from yaml
+        state (train_state.TrainState): train state for Pali model
+    """
+    hpparams = config["hyperparams"]
+    os.makedirs(hpparams["save_checkpoint_dir"], exist_ok=True)
+    # Save training state
+    # orbax_checkpointer = orbax.Checkpointer(orbax.PyTreeCheckpointHandler())
+    checkpoints.save_checkpoint(
+        ckpt_dir=hpparams["save_checkpoint_dir"],
+        target=state,
+        step=state.step,  # Current step
+        overwrite=True,  # Allow to overwrite the old checkpoint
+        keep=1,  # Maximum number of checkpoints you want to store
+        # orbax_checkpointer=orbax_checkpointer,
+    )
+
+def save_history(
+    config: dict,
+    step: int,
+    train_cider: float,
+    train_loss: float,
+    val_cider: float,
+    val_loss: float,
+    val_bleu: float,
+    train_bleu: float,
+    file_name="history.csv",
+):
+    """Save training history to csv file
+
+    Args:
+        config (dict): config file load from yaml
+        step (int): the current step when saving the history
+        train_cider (float): cider score for training
+        train_loss (float): loss value for training
+        val_cider (float): cider score for validation
+        val_loss (float): loss value for validation
+        file_name (str, optional): file name for saving the history. Defaults to "history.csv".
+
+    Returns:
+        str: path to the saved history file
+    """
+    hpparams = config["hyperparams"]
+    os.makedirs(hpparams["save_history_dir"], exist_ok=True)
+    file_path = os.path.join(hpparams["save_history_dir"], file_name)
+    with open(file_path, mode="a", newline="") as csv_file:
+        fieldnames = ["step", "train_cider", "train_bleu", "train_loss", "val_cider", "val_bleu", "val_loss"]
+        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+        # write the header row
+        if csv_file.tell() == 0:
+            writer.writeheader()
+        # write the data row
+        writer.writerow(
+            {
+                "step": step,
+                "train_cider": train_cider,
+                "train_bleu": train_bleu,
+                "train_loss": train_loss,
+                "val_cider": val_cider,
+                "val_bleu": val_bleu,
+                "val_loss": val_loss,
+            }
+        )
+
+def save_parameters(
+    config: dict,
+    state: train_state.TrainState,
+    step: int,
+):
+    """Save only the parameters for the model.
+
+    Args:
+        config (dict): config file load from yaml
+        state (train_state.TrainState): train state for model
+        step (int): step is currently training
+        
+    Returns:
+        str: path to the saved parameters
+    """
+    
+    hpparams = config["hyperparams"]
+    os.makedirs(hpparams["save_params_dir"], exist_ok=True)
+    params = state.params.unfreeze()
+    filename = "params_{}.npz".format(step)
+    params_path = os.path.join(hpparams["save_params_dir"], filename)
+    params_arr = np.array(params).reshape(1)
+    np.savez_compressed(params_path, params_arr)
+    
+    return params_path

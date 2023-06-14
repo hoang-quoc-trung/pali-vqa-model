@@ -1,0 +1,40 @@
+---
+dataset:
+  training:
+    data_root: '/kaggle/input/coco-vqa-train/train/train2014' # ../../../input/coco-vqa-train/train
+    csv_file: '/kaggle/input/coco-vqa-train/train/train.csv'
+  validation:
+    data_root: '/kaggle/input/coco-vqa-val/val/val2014'
+    csv_file: '/kaggle/input/coco-vqa-val/val/val.csv'
+  testing:
+    data_root: '...'
+    csv_file: '...'
+hyperparams:
+  image_size: [224, 224]
+  encoder_input_tokens: 38
+  decoder_input_tokens: 18
+  decoder_target_tokens: 18
+  train_batch_size: 64
+  val_batch_size: 64
+  learning_rate: 0.0001
+  momentum: 0.9
+  grad_norm_clip: 1.0
+  num_steps: 50000
+  save_steps: 1000
+  val_steps: 100
+  save_checkpoint_dir: '/kaggle/working/PaLI-model/src/checkpoints/...'
+  load_checkpoint_dir: '/kaggle/working/PaLI-model/src/checkpoints/...'
+  load_params_dir: '/kaggle/working/PaLI-model/src/checkpoints/params/...'
+  save_params_dir: '/kaggle/working/PaLI-model/src/checkpoints/params'
+  save_history_dir: '/kaggle/working/PaLI-model/src/checkpoints/history_log'
+t5:
+  gin_file: 'models/t5x/t5x/examples/t5/t5_1_1/base.gin'
+  dropout_rate: 0.0
+  vit_patches_embs_size: 50
+  pretrained_path: '/kaggle/working/PaLI-model/pretrained/checkpoint_1184000'
+  vocab_size: 32128
+vit:
+  num_classes: null
+  model_name: 'ViT-B_32'
+  classifier: "token_unpooled"
+  pretrained_path: '/kaggle/working/PaLI-model/pretrained/ViT-B_32.npz' # '../pretrained/ViT-B_32.npz'

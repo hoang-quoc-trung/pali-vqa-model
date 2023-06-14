@@ -1,0 +1,6 @@
+# must use python 3.8
+src/models/t5x
+src/models/vit
+jax>=0.4.1
+PyYAML
+nest_asyncio
