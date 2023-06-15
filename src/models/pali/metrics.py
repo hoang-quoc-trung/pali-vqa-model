@@ -1,31 +1,39 @@
-from nltk.translate.bleu_score import sentence_bleu
 from t5.data import get_default_vocabulary as get_t5_vocab
 import jax
 import jax.numpy as jnp
+import evaluate
 from models.pali.cider import Cider
 
 vocab_encoder_decoder = get_t5_vocab()
+google_bleu = evaluate.load("google_bleu")
+scorers = [(Cider(), "CIDEr")]
+
+@jax.jit
+def argmax_logits(logits):
+    return jnp.argmax(logits, axis=-1)
 
 def bleu_score(logits, targets):
     mean_blue_score = 0
-    predicted_tokens = jnp.argmax(logits, axis=-1)
+    predicted_tokens = argmax_logits(logits)
     def single_bleu_score(l, t):
         ref = vocab_encoder_decoder.decode(t)
         hypo = vocab_encoder_decoder.decode(l)
-        ref = ref.split()
-        hypo = hypo.split()
-        return sentence_bleu([ref], hypo)
+        print(f"Y: {ref} | Yhat: {hypo}")
+        try:
+            result = google_bleu.compute(predictions=[hypo], references=[[ref]])
+            result = result['google_bleu']
+        except:
+            result=0.0
+        return result
     for l, t in zip(predicted_tokens, targets):
         mean_blue_score += single_bleu_score(l, t)
     return mean_blue_score / len(logits)
 
-
-scorers = [(Cider(), "CIDEr")]
 def cider_metric(logits, targets):
     # shape(logits): (batch size, 18, 32128) - shape(target): (batch size, 18)
     final_scores = {}
     # shape(predicted_tokens): (3,18)
-    predicted_tokens = jnp.argmax(logits, axis=-1)
+    predicted_tokens = argmax_logits(logits)
     def convert_to_text(logit, target):
         ref = vocab_encoder_decoder.decode(target)
         hypo = vocab_encoder_decoder.decode(logit)
