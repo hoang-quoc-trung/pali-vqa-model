@@ -126,11 +126,13 @@ def main(args):
         val_cider, val_loss, val_bleu = [], [], []
         with tqdm(total=val_steps) as pbar:
             for _ in range(val_steps):
-                try:
-                    X, y = next(val_ds_iter)
-                except:
-                    LOGGER.info('Token count exceeds token_length, next data!')
-                    X, y = next(val_ds_iter)
+                while True:
+                    try:
+                        X, y = next(val_ds_iter)
+                        break  
+                    except Exception as e:
+                        LOGGER.info('Token count exceeds token_length, next data!')
+                        LOGGER.info(f'Error: {str(e)}')
                 loss, cider, bleu = eval_step(state, X, y)
                 # Save history of metrics across the entire batch
                 val_cider.append(cider)
@@ -154,11 +156,14 @@ def main(args):
         train_cider, train_bleu, train_loss = [], [], []
         for step in range(1, num_steps + 1):
             # Train the model
-            try:
-                X, y = next(train_ds_iter)
-            except:
-                LOGGER.info('Token count exceeds token_length, next data!')
-                X, y = next(train_ds_iter)
+            attempt = 1
+            while True:
+                try:
+                    X, y = next(train_ds_iter)
+                    break  
+                except Exception as e:
+                    LOGGER.info('Token count exceeds token_length, next data!')
+                    LOGGER.info(f'Error: {str(e)}')
             state, loss, cider, bleu = train_step(state, X, y)
             # Update progress bar and save history of metrics
             train_cider.append(cider)
