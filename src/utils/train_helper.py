@@ -14,8 +14,9 @@ from jax.lib import xla_bridge
 from jax.config import config
 config.update("jax_debug_nans", True)
 from models.pali import (
-    cider_metric,
+    cider_score,
     bleu_score,
+    combine_metrics,
     cross_entropy_loss,
     get_t5x_pretrained,
     get_vit_pretrained,
@@ -404,8 +405,7 @@ def get_train_val_step(
 
     def train_step(state: train_state.TrainState, X, y):
         new_state, loss, logits = _train_step(state, X, y)
-        cider = float(cider_metric(logits, y)["CIDEr"])
-        bleu = float(bleu_score(logits, y))
+        cider, bleu = combine_metrics(logits, y)
         return new_state, loss, cider, bleu
 
     @jax.jit
@@ -417,8 +417,7 @@ def get_train_val_step(
 
     def eval_step(state: train_state.TrainState, X, y):
         loss, logits = _eval_step(state, X, y)
-        cider = float(cider_metric(logits, y)["CIDEr"])
-        bleu = float(bleu_score(logits, y))
+        cider, bleu = combine_metrics(logits, y)
         return loss, cider, bleu
 
     return train_step, eval_step

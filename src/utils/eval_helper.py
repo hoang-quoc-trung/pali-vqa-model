@@ -1,7 +1,7 @@
 import jax
 import numpy as np
 from flax import linen as nn
-from models.pali import cider_metric, cross_entropy_loss
+from models.pali import cider_score, cross_entropy_loss
 
 from .train_helper import hardware_setting
 
@@ -42,7 +42,7 @@ def get_eval_step(config: dict, model: nn.Module):
     # Currently, CIDEr metric is not supported in jax.jit
     def eval_step(params, X, y):
         loss, logits = val_step(params, X, y)
-        cider = float(cider_metric(logits, y)["CIDEr"])
-        return loss, cider
+        cider, bleu = combine_metrics(logits, y)
+        return loss, cider, bleu
 
     return eval_step
