@@ -389,15 +389,15 @@ def get_train_val_step(
         def loss_fn(state, params, X, y):
             outputs = state.apply_fn(params, **X)
             logits = outputs["logits"]
-            # loss = cross_entropy_loss(logits, y, vocab_size=VOCAB_SIZE)
-            loss = compute_weighted_cross_entropy(
-                logits=logits,
-                targets=y,
-                label_smoothing=0.1,
-                # weights=attention_mask,
-                z_loss=0.1,
-                loss_normalizing_factor=0.1,
-            )[0]
+            loss = cross_entropy_loss(logits, y, vocab_size=VOCAB_SIZE)
+            # loss = compute_weighted_cross_entropy(
+            #     logits=logits,
+            #     targets=y,
+            #     label_smoothing=0.1,
+            #     # weights=attention_mask,
+            #     z_loss=0.1,
+            #     loss_normalizing_factor=0.1,
+            # )[0]
             return loss, logits
 
         # Create Gradient Function by passing in the function
@@ -422,6 +422,14 @@ def get_train_val_step(
         outputs = state.apply_fn(state.params, **X)
         logits = outputs["logits"]
         loss = cross_entropy_loss(logits, y, vocab_size=VOCAB_SIZE)
+        # loss = compute_weighted_cross_entropy(
+        #     logits=logits,
+        #     targets=y,
+        #     label_smoothing=0.1,
+        #     # weights=attention_mask,
+        #     z_loss=0.1,
+        #     # loss_normalizing_factor=0.1,
+        # )[0]
         return loss, logits
 
     def eval_step(state: train_state.TrainState, X, y):
