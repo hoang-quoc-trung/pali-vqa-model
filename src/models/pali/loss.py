@@ -1,4 +1,5 @@
-from typing import Tuple, Optional
+import enum
+from typing import Tuple, Mapping, Optional, Union
 import jax
 import optax
 import jax.numpy as jnp
@@ -11,8 +12,11 @@ def cross_entropy_loss(logits, targets, vocab_size):
 
 
 @jax.custom_vjp
-def cross_entropy_with_logits(logits: jnp.ndarray, targets: jnp.ndarray,
-                              z_loss: float) -> Tuple[jnp.ndarray, jnp.ndarray]:
+def cross_entropy_with_logits(
+    logits: jnp.ndarray,
+    targets: jnp.ndarray,
+    z_loss: float
+) -> Tuple[jnp.ndarray, jnp.ndarray]:
     """Computes cross entropy loss with stable custom gradient.
 
     Computes a stabilized-gradient version of:
@@ -27,8 +31,7 @@ def cross_entropy_with_logits(logits: jnp.ndarray, targets: jnp.ndarray,
 
     Args:
       logits: [batch, length, num_classes] float array.
-      targets: categorical one-hot targets [batch, length, num_classes] float
-        array.
+      targets: categorical one-hot targets [batch, length, num_classes] float array.
       z_loss: coefficient for auxilliary z-loss loss term.
 
     Returns:
@@ -63,8 +66,8 @@ def _cross_entropy_with_logits_fwd(
     log_z = jnp.squeeze(jnp.log(sum_exp) + max_logit, axis=-1)
     total_z_loss = z_loss * jax.lax.square(log_z)
     loss += total_z_loss
-    return (loss, total_z_loss), (logits, targets, z_loss, exp_shifted, sum_exp,  # pytype: disable=bad-return-type  # jax-ndarray
-                                  log_softmax, log_z)
+    # pytype: disable=bad-return-type  # jax-ndarray
+    return (loss, total_z_loss), (logits, targets, z_loss, exp_shifted, sum_exp, log_softmax, log_z)
 
 
 def _cross_entropy_with_logits_bwd(
@@ -75,18 +78,14 @@ def _cross_entropy_with_logits_bwd(
     g = g[0]  # Ignore z_loss component as that is only used for logging.
     logits, targets, z_loss, exp_shifted, sum_exp, log_softmax, log_z = res
     # z-loss term adds the (2 * z_loss * log_z) factor.
-    deriv = (
-        jnp.expand_dims(1 + 2 * z_loss * log_z, -1) * exp_shifted / sum_exp -
-        targets)
+    deriv = (jnp.expand_dims(1 + 2 * z_loss * log_z, -1) * exp_shifted / sum_exp - targets)
     g_logits = jnp.expand_dims(g, axis=-1) * deriv
     g_targets = -jnp.expand_dims(g, axis=-1) * log_softmax
-    return (jnp.asarray(g_logits,
-                        logits.dtype), jnp.asarray(g_targets, targets.dtype),
-            jnp.array(0.0))  # sets z-loss coeff gradient to 0
+    # sets z-loss coeff gradient to 0
+    return (jnp.asarray(g_logits, logits.dtype), jnp.asarray(g_targets, targets.dtype), jnp.array(0.0))  
 
 
-cross_entropy_with_logits.defvjp(_cross_entropy_with_logits_fwd,
-                                 _cross_entropy_with_logits_bwd)
+cross_entropy_with_logits.defvjp(_cross_entropy_with_logits_fwd, _cross_entropy_with_logits_bwd)
 
 
 @jax.jit
@@ -120,13 +119,9 @@ def compute_weighted_cross_entropy(
     vocab_size = logits.shape[-1]
     confidence = 1.0 - label_smoothing
     low_confidence = (1.0 - confidence) / (vocab_size - 1)
-    normalizing_constant = -(
-        confidence * jnp.log(confidence) +
-        (vocab_size - 1) * low_confidence * jnp.log(low_confidence + 1e-20))
-    soft_targets = common_utils.onehot(
-        targets, vocab_size, on_value=confidence, off_value=low_confidence)
-    total_loss, total_z_loss = cross_entropy_with_logits(
-        logits, soft_targets, z_loss=z_loss)
+    normalizing_constant = -(confidence * jnp.log(confidence) + (vocab_size - 1) * low_confidence * jnp.log(low_confidence + 1e-20))
+    soft_targets = common_utils.onehot(targets, vocab_size, on_value=confidence, off_value=low_confidence)
+    total_loss, total_z_loss = cross_entropy_with_logits(logits, soft_targets, z_loss=z_loss)
     total_loss = total_loss - normalizing_constant
 
     weight_sum = np.prod(targets.shape)
