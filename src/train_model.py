@@ -156,14 +156,12 @@ def main(args):
         train_cider, train_bleu, train_loss = [], [], []
         for step in range(1, num_steps + 1):
             # Train the model
-            attempt = 1
             while True:
                 try:
                     X, y = next(train_ds_iter)
                     break  
-                except Exception as e:
+                except:
                     LOGGER.info('Token count exceeds token_length, next data!')
-                    LOGGER.info(f'Error: {str(e)}')
             state, loss, cider, bleu = train_step(state, X, y)
             # Update progress bar and save history of metrics
             train_cider.append(cider)
