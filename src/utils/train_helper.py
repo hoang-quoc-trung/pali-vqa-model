@@ -18,6 +18,7 @@ from models.pali import (
     bleu_score,
     combine_metrics,
     cross_entropy_loss,
+    compute_weighted_cross_entropy,
     get_t5x_pretrained,
     get_vit_pretrained,
 )
@@ -388,7 +389,15 @@ def get_train_val_step(
         def loss_fn(state, params, X, y):
             outputs = state.apply_fn(params, **X)
             logits = outputs["logits"]
-            loss = cross_entropy_loss(logits, y, vocab_size=VOCAB_SIZE)
+            # loss = cross_entropy_loss(logits, y, vocab_size=VOCAB_SIZE)
+            loss = compute_weighted_cross_entropy(
+                logits=logits,
+                targets=y,
+                label_smoothing=0.1,
+                # weights=attention_mask,
+                z_loss=0.1,
+                loss_normalizing_factor=0.1,
+            )[0]
             return loss, logits
 
         # Create Gradient Function by passing in the function
