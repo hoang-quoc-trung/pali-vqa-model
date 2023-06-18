@@ -91,7 +91,7 @@ def init_pali_params(
         ),
     }
     # Init parameters
-    variables = model.init(jax.random.PRNGKey(seed), **dummy_inputs)
+    variables = model.init(jax.random.PRNGKey(seed), **dummy_inputs) 
     
     return variables
 
@@ -213,7 +213,7 @@ def create_train_state(
     # Lambda function should return True if the layer's name is in the list for freezing
     trainable_mask = create_mask(
         variables, lambda x: x in ["VisionTransformer_0"], optimizer_name
-    )
+    ) # ["VisionTransformer_0", "decoder"]
 
     # Define some optimizer, default is adafactor optimizer
     if optimizer_name == 'lion':
@@ -389,15 +389,19 @@ def get_train_val_step(
         def loss_fn(state, params, X, y):
             outputs = state.apply_fn(params, **X)
             logits = outputs["logits"]
-            loss = cross_entropy_loss(logits, y, vocab_size=VOCAB_SIZE)
-            # loss = compute_weighted_cross_entropy(
-            #     logits=logits,
-            #     targets=y,
-            #     label_smoothing=0.1,
-            #     # weights=attention_mask,
-            #     z_loss=0.1,
-            #     loss_normalizing_factor=0.1,
-            # )[0]
+            #loss = cross_entropy_loss(logits, y, vocab_size=VOCAB_SIZE)
+            
+            """ NOTE: When fine-tuning the public T5 checkpoints (trained in T5 MeshTF) the loss normalizing
+                        factor should be set to pretraining batch_size * target_token_length.
+            """
+            loss_normalizing_factor = y.shape[0] * y.shape[1]
+            loss = compute_weighted_cross_entropy(
+                logits=logits,
+                targets=y,
+                label_smoothing=0.0,
+                z_loss=0.0001,
+                loss_normalizing_factor=loss_normalizing_factor,
+            )[0]
             return loss, logits
 
         # Create Gradient Function by passing in the function
@@ -421,15 +425,19 @@ def get_train_val_step(
     def _eval_step(state: train_state.TrainState, X, y):
         outputs = state.apply_fn(state.params, **X)
         logits = outputs["logits"]
-        loss = cross_entropy_loss(logits, y, vocab_size=VOCAB_SIZE)
-        # loss = compute_weighted_cross_entropy(
-        #     logits=logits,
-        #     targets=y,
-        #     label_smoothing=0.1,
-        #     # weights=attention_mask,
-        #     z_loss=0.1,
-        #     # loss_normalizing_factor=0.1,
-        # )[0]
+        # loss = cross_entropy_loss(logits, y, vocab_size=VOCAB_SIZE)
+        
+        """ NOTE: When fine-tuning the public T5 checkpoints (trained in T5 MeshTF) the loss normalizing
+                    factor should be set to pretraining batch_size * target_token_length.
+        """
+        loss_normalizing_factor = y.shape[0] * y.shape[1]
+        loss = compute_weighted_cross_entropy(
+            logits=logits,
+            targets=y,
+            label_smoothing=0.0,
+            z_loss=0.0001,
+            loss_normalizing_factor=loss_normalizing_factor,
+        )[0]
         return loss, logits
 
     def eval_step(state: train_state.TrainState, X, y):
