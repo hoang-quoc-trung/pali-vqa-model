@@ -41,6 +41,7 @@ class Encoder(nn.Module):
             name="relpos_bias",
         )
         # [batch, length] -> [batch, length, emb_dim]
+        # Input [128, 38] -> Embedding [128, 38, 768]
         x = self.shared_embedding(encoder_input_tokens.astype("int32"))
         x = nn.Dropout(rate=cfg.dropout_rate, broadcast_dims=(-2,))(
             x, deterministic=deterministic
@@ -49,6 +50,8 @@ class Encoder(nn.Module):
 
         # Add patch_vit_embs to x
         # [batch, length, emb_dim] -> [batch, length + patch_vit_embs.shape[1], emb_dim]
+        # Patch ViT Embedding: [128, 50, 768]
+        # Embedding [128, 38, 768] -> T5 + ViT [128, 88, 768]
         x = jnp.concatenate([x, patch_vit_embs], axis=1)
         for lyr in range(cfg.num_encoder_layers):
             # [batch, length, emb_dim] -> [batch, length, emb_dim]
@@ -57,6 +60,7 @@ class Encoder(nn.Module):
             )(x, encoder_mask, deterministic)
 
         x = layers.LayerNorm(dtype=cfg.dtype, name="encoder_norm")(x)
+        # Output Of Encoder: [128, 88, 768]
         return nn.Dropout(rate=cfg.dropout_rate)(x, deterministic=deterministic)
 
 
