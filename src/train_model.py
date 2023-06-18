@@ -87,7 +87,7 @@ def main(args):
     # Load params has been trained and continue to train
     if os.path.exists(hpparams["load_params_dir"]):
         LOGGER.info(
-            "Restoring checkpoint... from {}".format(hpparams["load_params_dir"])
+            "Restoring params... from {}".format(hpparams["load_params_dir"])
         )
         variables = load_checkpoint(hpparams["load_params_dir"])
         variables = freeze(variables)
@@ -132,7 +132,6 @@ def main(args):
                         break  
                     except Exception as e:
                         LOGGER.info('Token count exceeds token_length, next data!')
-                        LOGGER.info(f'Error: {str(e)}')
                 loss, cider, bleu = eval_step(state, X, y)
                 # Save history of metrics across the entire batch
                 val_cider.append(cider)
