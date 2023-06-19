@@ -14,14 +14,14 @@ hyperparams:
   encoder_input_tokens: 38
   decoder_input_tokens: 18
   decoder_target_tokens: 18
-  train_batch_size: 64
-  val_batch_size: 64
+  train_batch_size: 128
+  val_batch_size: 128
   learning_rate: 0.0001
   # momentum: 0.9
   # grad_norm_clip: 1.0
   num_steps: 50000
-  save_steps: 1000
-  val_steps: 100
+  save_steps: 500
+  val_steps: 50
   save_checkpoint_dir: '...'
   load_checkpoint_dir: '...'
   load_params_dir: '...'

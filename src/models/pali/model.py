@@ -41,18 +41,14 @@ class Encoder(nn.Module):
             name="relpos_bias",
         )
         # [batch, length] -> [batch, length, emb_dim]
-        # Input [128, 38] -> Embedding [128, 38, 768]
+        # Input [batch, 38] -> Embedding [batch, 38, 768]
         x = self.shared_embedding(encoder_input_tokens.astype("int32"))
         x = nn.Dropout(rate=cfg.dropout_rate, broadcast_dims=(-2,))(
             x, deterministic=deterministic
         )
         x = x.astype(cfg.dtype)
 
-        # Add patch_vit_embs to x
-        # [batch, length, emb_dim] -> [batch, length + patch_vit_embs.shape[1], emb_dim]
-        # Patch ViT Embedding: [128, 50, 768]
-        # Embedding [128, 38, 768] -> T5 + ViT [128, 88, 768]
-        x = jnp.concatenate([x, patch_vit_embs], axis=1)
+        # Embedding [batch, 38, 768] -> T5 + ViT [batch, 88, 768]
         for lyr in range(cfg.num_encoder_layers):
             # [batch, length, emb_dim] -> [batch, length, emb_dim]
             x = EncoderLayer(
@@ -60,8 +56,12 @@ class Encoder(nn.Module):
             )(x, encoder_mask, deterministic)
 
         x = layers.LayerNorm(dtype=cfg.dtype, name="encoder_norm")(x)
-        # Output Of Encoder: [128, 88, 768]
-        return nn.Dropout(rate=cfg.dropout_rate)(x, deterministic=deterministic)
+        x = nn.Dropout(rate=cfg.dropout_rate)(x, deterministic=deterministic)
+        # Add patch_vit_embs to x
+        # [batch, length, emb_dim] -> [batch, length + patch_vit_embs.shape[1], emb_dim]
+        # Patch ViT Embedding: [batch, 50, 768]
+        # x: [batch, 38, 768] -> concatenate(ViT, T5 Encoder): [batch, 88, 768]
+        return jnp.concatenate([x, patch_vit_embs], axis=1)
 
 
 class MergeT5(T5):
@@ -97,18 +97,11 @@ class MergeT5(T5):
             f"Expected `encoder_input_tokens` to be of shape (batch, len). "
             f"Got {encoder_input_tokens.shape}"
         )
-        # Add padding mask for patch embeddings.
-        patch_vit_token_mask = jnp.ones(
-            (encoder_input_tokens.shape[0], patch_vit_embs.shape[1])
-        )
-        # Merge input mask and patch embeddings mask.
-        merge_input_tokens_mask = jnp.concatenate(
-            [encoder_input_tokens, patch_vit_token_mask], axis=1
-        )
+        
         # Make padding attention mask.
         encoder_mask = layers.make_attention_mask(
-            merge_input_tokens_mask > 0, merge_input_tokens_mask > 0, dtype=cfg.dtype
-        )
+            encoder_input_tokens > 0, encoder_input_tokens > 0, dtype=cfg.dtype)
+        
         # Add segmentation block-diagonal attention mask if using segmented data.
         if encoder_segment_ids is not None:
             encoder_mask = layers.combine_masks(
