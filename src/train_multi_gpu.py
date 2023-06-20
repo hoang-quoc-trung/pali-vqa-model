@@ -21,7 +21,7 @@ from utils.train_helper import (
     load_T5x_pretrained,
     load_ViT_pretrained,
     load_data,
-    save_checkpoint_state,
+    save_checkpoint_state_multi_gpu,
     save_history_multi_gpu,
     save_parameters,
 )
@@ -63,11 +63,11 @@ def main(args):
     model = PaLI(cfg)
     variables = init_pali_params(cfg, model, args.seed)
 
-    # # Load pretrained model
-    # LOGGER.info("Loading ViT pretrained model")
-    # variables = load_ViT_pretrained(cfg, variables)
-    # LOGGER.info("Loading Flan-T5 pretrained model")
-    # variables = load_T5x_pretrained(cfg, variables)
+    # Load pretrained model
+    LOGGER.info("Loading ViT pretrained model")
+    variables = load_ViT_pretrained(cfg, variables)
+    LOGGER.info("Loading Flan-T5 pretrained model")
+    variables = load_T5x_pretrained(cfg, variables)
 
 #--------------------------------------------------------------------------------------------
     # # Create the train state
@@ -166,7 +166,7 @@ def main(args):
                     "Mean training in the {} previous steps -> loss: {:.3f}".format(save_steps, avg_train_loss))
                 # Reset the train history
                 train_loss = []
-                save_path = save_parameters(cfg, state, step)
+                
                 LOGGER.info("Performing evaluation...")
                 val_loss = evaluation(state, val_steps)
                 LOGGER.info("Mean validation in the {} previous steps -> loss: {:.3f}".format(save_steps, val_loss))
@@ -179,15 +179,15 @@ def main(args):
                 # # Save the checkpoint with the highest val_cider_score
                 # if val_loss > best_val_loss:
                 #     best_val_loss = val_loss
-                #     # save_checkpoint_state(cfg, state)
+                #     # save_checkpoint_state_multi_gpu(cfg, state)
                 #     save_path = save_parameters(cfg, state, step)
                 #     LOGGER.info("Save the best checkpoint in {}".format(save_path))
                 
-                
+                save_path = save_parameters(cfg, state, step)
                 LOGGER.info("Save the best checkpoint in {}".format(save_path))
 
     # Save the final checkpoint
-    # save_checkpoint_state(cfg, state)
+    # save_checkpoint_state_multi_gpu(cfg, state)
     # save_path = save_parameters(cfg, state, step)
     # LOGGER.info("Training finished! Save the final checkpoint in {}".format(save_path))
 
