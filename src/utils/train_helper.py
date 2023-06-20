@@ -1,6 +1,7 @@
 import csv
 import os
 import subprocess as sp
+from typing import Optional
 
 import jax
 import optax
@@ -12,6 +13,7 @@ from jax import numpy as jnp
 import numpy as np
 from jax.lib import xla_bridge
 from jax.config import config
+from functools import partial
 config.update("jax_debug_nans", True)
 from models.pali import (
     cider_score,
@@ -448,6 +450,129 @@ def get_train_val_step(
     return train_step, eval_step
 
 
+def get_train_val_step_multi_gpu(
+    config: dict,
+):
+    """Get training and evaluating step for Pali model - Multi GPU
+
+    Args:
+        config (dict): config file load from yaml
+
+    Returns:
+        function: training step function and evaluating step function
+    """
+
+    @partial(jax.pmap, axis_name="num_devices")
+    def _train_step_multi_gpu(state: train_state.TrainState, X, y):
+        def loss_fn(state, params, X, y):
+            outputs = state.apply_fn(params, **X)
+            logits = outputs["logits"]
+            """ NOTE: When fine-tuning the public T5 checkpoints (trained in T5 MeshTF) the loss normalizing
+                        factor should be set to pretraining batch_size * target_token_length.
+            """
+            loss_normalizing_factor = y.shape[0] * y.shape[1]
+            loss = compute_weighted_cross_entropy(
+                logits=logits,
+                targets=y,
+                label_smoothing=0.0,
+                z_loss=0.0001,
+                loss_normalizing_factor=loss_normalizing_factor,
+            )[0]
+            return loss, logits
+
+        # Create Gradient Function by passing in the function
+        grad_fn = jax.value_and_grad(
+            loss_fn,
+            argnums=1,  # Choose the parameter 'params' in 'loss_fn(state, params, X, y)'
+            has_aux=True,  # Return loss and logits for calculating accuracy
+        )
+        # Calculate the loss and gradients
+        (loss, logits), grads = grad_fn(state, state.params, X, y)
+        grads = jax.lax.pmean(grads, axis_name="num_devices")
+        loss = jax.lax.pmean(loss, axis_name="num_devices")
+        # Update Parameters
+        new_state = state.apply_gradients(grads=grads)
+        return new_state, loss
+
+    def train_step_multi_gpu(state: train_state.TrainState, X, y):
+        new_state, loss = _train_step_multi_gpu(state, X, y)
+        return new_state, loss[0]
+
+    @partial(jax.pmap, axis_name="num_devices")
+    def _eval_step_multi_gpu(state: train_state.TrainState, X, y):
+        outputs = state.apply_fn(state.params, **X)
+        logits = outputs["logits"]
+        """ NOTE: When fine-tuning the public T5 checkpoints (trained in T5 MeshTF) the loss normalizing
+                    factor should be set to pretraining batch_size * target_token_length.
+        """
+        loss_normalizing_factor = y.shape[0] * y.shape[1]
+        loss = compute_weighted_cross_entropy(
+            logits=logits,
+            targets=y,
+            label_smoothing=0.0,
+            z_loss=0.0001,
+            loss_normalizing_factor=loss_normalizing_factor,
+        )[0]
+        loss = jax.lax.pmean(loss, axis_name="num_devices")
+        return loss
+    
+    def eval_step_multi_gpu(state: train_state.TrainState, X, y):
+        loss = _eval_step_multi_gpu(state, X, y)
+        return loss[0]
+    
+    return train_step_multi_gpu, eval_step_multi_gpu
+
+
+def load_data(
+    multi_devices: bool,
+    data,
+    num_devices: Optional[int] = None,
+):
+    """Load and preprocess data for model training or evaluation.
+
+    This function loads the data from the provided iterator `data` and preprocesses it.
+    If `multi_devices` is set to `True`, it reshapes the data to be compatible with multiple devices.
+
+    Args:
+        multi_devices (bool): Flag indicating whether the data should be reshaped for multiple devices.
+        data: Iterator providing the data for training or evaluation.
+        num_devices (int, optional): Number of devices to consider when reshaping the data. Defaults to None.
+
+    Returns:
+        Tuple: A tuple containing the preprocessed input data `X` and the corresponding target data `y`.
+
+    """
+    
+    while True:
+        try:
+            X, y = next(data)
+            break  
+        except:
+            print('Token count exceeds token_length, next data!')
+    
+    if multi_devices: 
+        """ Reshape images from [num_devices * batch_size, height, width, channels]
+            to [num_devices, batch_size, height, width, img_channels]
+        """  
+        X = {
+            "images": X["images"].reshape(
+                [num_devices, -1] + list(X["images"].shape[1:])
+            ),
+            "encoder_input_tokens": X["encoder_input_tokens"].reshape(
+                [num_devices, -1] + list(X["encoder_input_tokens"].shape[1:])
+            ),
+            "decoder_input_tokens": X["decoder_input_tokens"].reshape(
+                [num_devices, -1] + list(X["decoder_input_tokens"].shape[1:])
+            ),
+            "decoder_target_tokens": X["decoder_target_tokens"].reshape(
+                [num_devices, -1] + list(X["decoder_target_tokens"].shape[1:])
+            ),
+        }
+        y = y.reshape([num_devices, -1] + list(y.shape[1:]))
+        
+    return X, y
+
+
 def save_checkpoint_state(
     config: dict,
     state: train_state.TrainState,
@@ -470,6 +595,7 @@ def save_checkpoint_state(
         keep=1,  # Maximum number of checkpoints you want to store
         # orbax_checkpointer=orbax_checkpointer,
     )
+
 
 def save_history(
     config: dict,
@@ -518,6 +644,45 @@ def save_history(
             }
         )
 
+
+def save_history_multi_gpu(
+    config: dict,
+    step: int,
+    train_loss: float,
+    val_loss: float,
+    file_name="history_multi_gpu.csv",
+):
+    """Save training history of multi-GPU to a CSV file
+
+    Args:
+        config (dict): config file load from yaml
+        step (int): the current step when saving the history
+        train_loss (float): loss value for training
+        val_loss (float): loss value for validation
+        file_name (str, optional): file name for saving the history. Defaults to "history_multi_gpu.csv".
+
+    Returns:
+        str: path to the saved history file
+    """
+    hpparams = config["hyperparams"]
+    os.makedirs(hpparams["save_history_dir"], exist_ok=True)
+    file_path = os.path.join(hpparams["save_history_dir"], file_name)
+    with open(file_path, mode="a", newline="") as csv_file:
+        fieldnames = ["step", "train_loss", "val_loss"]
+        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+        # write the header row
+        if csv_file.tell() == 0:
+            writer.writeheader()
+        # write the data row
+        writer.writerow(
+            {
+                "step": step,
+                "train_loss": train_loss,
+                "val_loss": val_loss,
+            }
+        )
+        
+        
 def save_parameters(
     config: dict,
     state: train_state.TrainState,

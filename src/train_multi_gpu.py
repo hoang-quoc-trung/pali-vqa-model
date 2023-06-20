@@ -1,0 +1,205 @@
+import argparse
+import datetime
+import logging
+import os
+
+import numpy as np
+import yaml
+from data.make_dataset import getTFDataGenerator
+import jax
+from jax import numpy as jnp
+import flax
+from flax.training import checkpoints
+from flax.core import freeze, unfreeze
+from models.pali import PaLI
+from tqdm import tqdm
+from utils.train_helper import (
+    create_train_state,
+    get_train_val_step_multi_gpu,
+    hardware_setting,
+    init_pali_params,
+    load_T5x_pretrained,
+    load_ViT_pretrained,
+    load_data,
+    save_checkpoint_state,
+    save_history_multi_gpu,
+    save_parameters,
+)
+from utils.eval_helper import (
+    load_checkpoint,
+)
+from jax.config import config
+config.update("jax_debug_nans", True)
+
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s %(levelname)-8s %(message)s"
+)
+LOGGER = logging.getLogger(__name__)
+LOGGER.setLevel(logging.INFO)
+
+
+def main(args):
+    # Testcase
+    assert os.path.exists(
+        args.config_path
+    ), f"Config file {args.config_path} does not exist!"
+
+    # Hardware setting
+    num_devices = jax.device_count()
+    device = hardware_setting(args)
+    LOGGER.info("Training on: {} {}".format(num_devices, device))
+
+    # Load the config file
+    cfg = yaml.safe_load(open(args.config_path))
+    cfg["hyperparams"]["save_checkpoint_dir"] = os.path.join(
+        cfg["hyperparams"]["save_checkpoint_dir"],
+        datetime.datetime.now().strftime("%Y%m%d-%H%M%S"),
+    )
+
+    hpparams = cfg["hyperparams"]
+
+    # PaLi model
+    LOGGER.info("Init PaLI model parameters")
+    model = PaLI(cfg)
+    variables = init_pali_params(cfg, model, args.seed)
+
+    # # Load pretrained model
+    # LOGGER.info("Loading ViT pretrained model")
+    # variables = load_ViT_pretrained(cfg, variables)
+    # LOGGER.info("Loading Flan-T5 pretrained model")
+    # variables = load_T5x_pretrained(cfg, variables)
+
+#--------------------------------------------------------------------------------------------
+    # # Create the train state
+    # state = create_train_state(
+    #     cfg,
+    #     model,
+    #     variables,
+    #     optimizer_name="adam",
+    # )
+
+    # # Load state has been trained and continue to train
+    # if os.path.exists(hpparams["load_checkpoint_dir"]):
+    #     LOGGER.info(
+    #         "Restoring checkpoint... from {}".format(hpparams["load_checkpoint_dir"])
+    #     )
+    #     state = checkpoints.restore_checkpoint(hpparams["load_checkpoint_dir"], state)
+ #--------------------------------------------------------------------------------------------
+ 
+    # Load params has been trained and continue to train
+    if os.path.exists(hpparams["load_params_dir"]):
+        LOGGER.info(
+            "Restoring params... from {}".format(hpparams["load_params_dir"])
+        )
+        variables = load_checkpoint(hpparams["load_params_dir"])
+        variables = freeze(variables)
+        state = create_train_state(
+            cfg,
+            model,
+            variables,
+            optimizer_name="adafactor",
+        )
+    else:
+        # Create the train state
+        state = create_train_state(
+            cfg,
+            model,
+            variables,
+            optimizer_name="adafactor",
+        )  
+
+    # Set batch_size based on number of devices
+    train_batch_size = hpparams['train_batch_size']*num_devices
+    val_batch_size = hpparams['val_batch_size']*num_devices
+    state = flax.jax_utils.replicate(state)
+    
+    # Init dataset
+    ds_cfg = cfg["dataset"]
+    train_ds, _ = getTFDataGenerator(
+        data_root=ds_cfg["training"]["data_root"],
+        csv_file=ds_cfg["training"]["csv_file"],
+        batch_size=train_batch_size,
+    )
+    val_ds, val_ds_len = getTFDataGenerator(
+        data_root=ds_cfg["validation"]["data_root"],
+        csv_file=ds_cfg["validation"]["csv_file"],
+        batch_size=val_batch_size,
+    )
+
+    # Train and evaluate step with jax.jit
+    train_step, eval_step = get_train_val_step_multi_gpu(cfg) 
+    
+    def evaluation(state, val_steps):
+        val_loss = []
+        with tqdm(total=val_steps) as pbar:
+            for _ in range(val_steps):
+                X, y = load_data(multi_devices=True, data=val_ds_iter, num_devices=num_devices)
+                loss = eval_step(state, X, y)
+                # Save history of metrics across the entire batch
+                val_loss.append(loss)
+                # Update progress bar
+                pbar.set_description( f"Validation -> loss: {loss:.3f}")
+                pbar.update(1)
+        return np.mean(val_loss)
+
+    LOGGER.info("Start training...")
+    """--------------------------------- Start Training Loop ---------------------------------"""
+    # Create iterator for train and validation dataset
+    num_steps, save_steps = hpparams["num_steps"], hpparams["save_steps"]
+    val_steps = val_ds_len if hpparams["val_steps"] is None else hpparams["val_steps"]
+    best_val_loss = 0.0
+    train_ds_iter, val_ds_iter = iter(train_ds), iter(val_ds)
+    with tqdm(total=num_steps) as pbar:
+        train_loss = []
+        for step in range(1, num_steps + 1):
+            # Train the model
+            X, y = load_data(multi_devices=True, data=train_ds_iter, num_devices=num_devices)
+            state, loss = train_step(state, X, y)
+            # Update progress bar and save history of metrics
+            train_loss.append(loss)
+            pbar.set_description(f"Training -> loss: {loss:.3f}")
+            pbar.update(1)
+            
+            if step % save_steps == 0:
+                avg_train_loss = np.mean(train_loss)
+                LOGGER.info(
+                    "Mean training in the {} previous steps -> loss: {:.3f}".format(save_steps, avg_train_loss))
+                # Reset the train history
+                train_loss = []
+                save_path = save_parameters(cfg, state, step)
+                LOGGER.info("Performing evaluation...")
+                val_loss = evaluation(state, val_steps)
+                LOGGER.info("Mean validation in the {} previous steps -> loss: {:.3f}".format(save_steps, val_loss))
+                save_history_multi_gpu(
+                    cfg,
+                    step=step,
+                    train_loss=avg_train_loss,
+                    val_loss=val_loss,
+                )
+                # # Save the checkpoint with the highest val_cider_score
+                # if val_loss > best_val_loss:
+                #     best_val_loss = val_loss
+                #     # save_checkpoint_state(cfg, state)
+                #     save_path = save_parameters(cfg, state, step)
+                #     LOGGER.info("Save the best checkpoint in {}".format(save_path))
+                
+                
+                LOGGER.info("Save the best checkpoint in {}".format(save_path))
+
+    # Save the final checkpoint
+    # save_checkpoint_state(cfg, state)
+    # save_path = save_parameters(cfg, state, step)
+    # LOGGER.info("Training finished! Save the final checkpoint in {}".format(save_path))
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="PaLI training script")
+    parser.add_argument(
+        "--config_path",
+        type=str,
+        default="configs/default_config.yml",
+        help="Path to the config file",
+    )
+    parser.add_argument("--gpu_id", type=int, default=0, help="GPU device id")
+    parser.add_argument("--seed", type=int, default=0, help="Random seed")
+    args = parser.parse_args()
+    main(args)
