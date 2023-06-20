@@ -20,6 +20,7 @@ from utils.train_helper import (
     init_pali_params,
     load_T5x_pretrained,
     load_ViT_pretrained,
+    load_data,
     save_checkpoint_state,
     save_history,
     save_parameters,
@@ -111,27 +112,22 @@ def main(args):
     train_ds, _ = getTFDataGenerator(
         data_root=ds_cfg["training"]["data_root"],
         csv_file=ds_cfg["training"]["csv_file"],
-        batch_size=hpparams["train_batch_size"],
+        batch_size=hpparams['train_batch_size'],
     )
     val_ds, val_ds_len = getTFDataGenerator(
         data_root=ds_cfg["validation"]["data_root"],
         csv_file=ds_cfg["validation"]["csv_file"],
-        batch_size=hpparams["val_batch_size"],
+        batch_size=hpparams['val_batch_size'],
     )
 
     # Train and evaluate step with jax.jit
-    train_step, eval_step = get_train_val_step(cfg)
-
+    train_step, eval_step = get_train_val_step(cfg) 
+    
     def evaluation(state, val_steps):
         val_cider, val_loss, val_bleu = [], [], []
         with tqdm(total=val_steps) as pbar:
             for _ in range(val_steps):
-                while True:
-                    try:
-                        X, y = next(val_ds_iter)
-                        break  
-                    except Exception as e:
-                        LOGGER.info('Token count exceeds token_length, next data!')
+                X, y = load_data(multi_devices=False, data=val_ds_iter)
                 loss, cider, bleu = eval_step(state, X, y)
                 # Save history of metrics across the entire batch
                 val_cider.append(cider)
@@ -155,12 +151,7 @@ def main(args):
         train_cider, train_bleu, train_loss = [], [], []
         for step in range(1, num_steps + 1):
             # Train the model
-            while True:
-                try:
-                    X, y = next(train_ds_iter)
-                    break  
-                except:
-                    LOGGER.info('Token count exceeds token_length, next data!')
+            X, y = load_data(multi_devices=False, data=train_ds_iter)
             state, loss, cider, bleu = train_step(state, X, y)
             # Update progress bar and save history of metrics
             train_cider.append(cider)
