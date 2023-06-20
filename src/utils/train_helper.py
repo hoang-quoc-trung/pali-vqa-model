@@ -595,6 +595,22 @@ def save_checkpoint_state(
         keep=1,  # Maximum number of checkpoints you want to store
         # orbax_checkpointer=orbax_checkpointer,
     )
+    
+    
+def save_checkpoint_state_multi_gpu(
+    config: dict,
+    state: train_state.TrainState,
+):
+    """Save training state and parameters for Pali model - Multi GPU
+
+    Args:
+        config (dict): config file load from yaml
+        state (train_state.TrainState): train state for Pali model
+    """
+    hpparams = config["hyperparams"]
+    os.makedirs(hpparams["save_checkpoint_dir"], exist_ok=True)
+    
+    # TODO...
 
 
 def save_history(
