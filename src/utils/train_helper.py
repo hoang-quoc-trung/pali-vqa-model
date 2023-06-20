@@ -609,8 +609,14 @@ def save_checkpoint_state_multi_gpu(
     """
     hpparams = config["hyperparams"]
     os.makedirs(hpparams["save_checkpoint_dir"], exist_ok=True)
-    
-    # TODO...
+    # Save training state
+    checkpoints.save_checkpoint_multiprocess(
+        ckpt_dir=hpparams["save_checkpoint_dir"],
+        target = jax_utils.unreplicate(state),
+        step=state.step,  # Current step
+        overwrite=True,  # Allow to overwrite the old checkpoint
+        keep=1,  # Maximum number of checkpoints you want to store
+    )
 
 
 def save_history(
