@@ -7,6 +7,16 @@ import numpy as np
 from flax.training import common_utils
 
 def cross_entropy_loss(logits, targets, vocab_size):
+    """Compute the cross-entropy loss between logits and targets.
+
+    Args:
+        logits (Array): Logits predicted by the model.
+        targets (Array): Target token indices.
+        vocab_size (int): Size of the vocabulary.
+
+    Returns:
+        float: Average cross-entropy loss.
+    """
     targets_1hot = jax.nn.one_hot(targets, num_classes=vocab_size, axis=-1)
     return optax.softmax_cross_entropy(logits=logits, labels=targets_1hot).mean()
 

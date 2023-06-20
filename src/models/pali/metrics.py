@@ -10,10 +10,28 @@ scorers = [(Cider(), "CIDEr")]
 
 @jax.jit
 def argmax_logits(logits):
+    """Compute the index of the maximum logit value along the last axis.
+
+    Args:
+        logits (jax.ndarray): Logits tensor.
+
+    Returns:
+        jax.ndarray: Index of the maximum logit value along the last axis.
+    """
     return jnp.argmax(logits, axis=-1)
 
 
 def convert_to_text(logit_tokens, target_tokens):
+    """Convert tokenized logit and target sequences to text.
+
+    Args:
+        logit_tokens (List[List[int]]): List of logit token sequences.
+        target_tokens (List[List[int]]): List of target token sequences.
+
+    Returns:
+        Tuple[List[str], List[str]]: Tuple containing hypothesis (decoded logit sequences)
+        and references (decoded target sequences).
+    """
     hypothesis = vocab_encoder_decoder.decode(logit_tokens)
     references = vocab_encoder_decoder.decode(target_tokens)
     # print(f"Y: {references} | Yhat: {hypothesis}")
@@ -21,6 +39,16 @@ def convert_to_text(logit_tokens, target_tokens):
 
 
 def bleu_score(logits, target_tokens):
+    """Convert tokenized logit and target sequences to text.
+
+    Args:
+        logit_tokens (List[List[int]]): List of logit token sequences.
+        target_tokens (List[List[int]]): List of target token sequences.
+
+    Returns:
+        Tuple[List[str], List[str]]: Tuple containing hypothesis (decoded logit sequences)
+        and references (decoded target sequences).
+    """
     mean_blue_score = 0.0
     logit_tokens = argmax_logits(logits)
     for l, t in zip(logit_tokens, target_tokens):
@@ -35,6 +63,15 @@ def bleu_score(logits, target_tokens):
 
 
 def cider_score(logits, target_tokens):
+    """Compute the CIDEr score between predicted logits and target tokens.
+
+    Args:
+        logits (Array): Predicted logits with shape (batch size, 18, 32128).
+        target_tokens (List[List[int]]): List of target token sequences.
+
+    Returns:
+        dict: Dictionary containing the CIDEr scores.
+    """
     final_scores = {}
     y_arr = []
     y_hat_arr = []
@@ -62,6 +99,16 @@ def cider_score(logits, target_tokens):
 
 
 def combine_metrics(logits, target_tokens):
+    """Combine multiple evaluation metrics including CIDEr and BLEU scores.
+
+    Args:
+        logits (Array): Predicted logits with shape (batch size, 18, 32128).
+        target_tokens (List[List[int]]): List of target token sequences.
+
+    Returns:
+        Tuple[float, float]: CIDEr score and BLEU score as a tuple.
+    """
+    
     cider_scores = {}
     mean_blue_score = 0.0
     y_arr = []
