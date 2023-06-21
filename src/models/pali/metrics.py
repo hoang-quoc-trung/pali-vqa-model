@@ -1,12 +1,11 @@
 from t5.data import get_default_vocabulary as get_t5_vocab
 import jax
 import jax.numpy as jnp
-import evaluate
 from models.pali.cider import Cider
+from models.pali.bleu import compute_bleu
 
 vocab_encoder_decoder = get_t5_vocab()
-google_bleu = evaluate.load("google_bleu")
-scorers = [(Cider(), "CIDEr")]
+cider = Cider()
 
 @jax.jit
 def argmax_logits(logits):
@@ -34,7 +33,7 @@ def convert_to_text(logit_tokens, target_tokens):
     """
     hypothesis = vocab_encoder_decoder.decode(logit_tokens)
     references = vocab_encoder_decoder.decode(target_tokens)
-    # print(f"Y: {references} | Yhat: {hypothesis}")
+    print(f"Y: {references} | Yhat: {hypothesis}")
     return hypothesis, references
 
 
@@ -54,8 +53,7 @@ def bleu_score(logits, target_tokens):
     for l, t in zip(logit_tokens, target_tokens):
         hypothesis, references  = convert_to_text(l, t)
         try:
-            result = google_bleu.compute(predictions=[hypothesis], references=[[references]])
-            result = result['google_bleu']
+            result = compute_bleu(predictions=[hypothesis], references=[[references]])
         except:
             result=0.0
         mean_blue_score += result
@@ -66,7 +64,7 @@ def cider_score(logits, target_tokens):
     """Compute the CIDEr score between predicted logits and target tokens.
 
     Args:
-        logits (Array): Predicted logits with shape (batch size, 18, 32128).
+        logits (Array): Predicted logits with shape (batch_size, length, vocab).
         target_tokens (List[List[int]]): List of target token sequences.
 
     Returns:
@@ -75,70 +73,53 @@ def cider_score(logits, target_tokens):
     final_scores = {}
     y_arr = []
     y_hat_arr = []
-    # shape(logits): (batch size, 18, 32128) - shape(target): (batch size, 18)
-    # shape(logit_tokens): (3,18)
+    # shape(logits): (batch_size, length, vocab) - shape(target): (batch_size, length)
+    # shape(logit_tokens): (batch_size, length)
     logit_tokens = argmax_logits(logits)
     for l, t in zip(logit_tokens, target_tokens):
         y_hat, y = convert_to_text(l, t)
         y_arr.append(y)
         y_hat_arr.append(y_hat)
-    # shape(y_hat_arr and y_arr): (batch size,)
-    # convert the shape of y_arr to (batch size, 1)
+    # shape(y_hat_arr and y_arr): (batch_size,)
+    # convert the shape of y_arr to (batch_size, 1)
     reference = [ [x] for x in y_arr ]
-    # convert the shape of y_hat_arr to (batch size, 1)
+    # convert the shape of y_hat_arr to (batch_size, 1)
     hypothesis = [ [x] for x in y_hat_arr ]
-    for scorer, method in scorers:
-        # input shape of compute_score function is (batch size, 1)
-        score, scores = scorer.compute_score(reference, hypothesis)
-        if type(score) == list:
-            for m, s in zip(method, score):
-                final_scores[m] = s    
-        else:
-            final_scores[method] = score  
-    return final_scores 
+    cider_score, cider_scores = cider.compute_cider_score(reference, hypothesis) 
+    return cider_score
 
 
 def combine_metrics(logits, target_tokens):
     """Combine multiple evaluation metrics including CIDEr and BLEU scores.
 
     Args:
-        logits (Array): Predicted logits with shape (batch size, 18, 32128).
+        logits (Array): Predicted logits with shape (batch_size, 18, 32128).
         target_tokens (List[List[int]]): List of target token sequences.
 
     Returns:
         Tuple[float, float]: CIDEr score and BLEU score as a tuple.
     """
     
-    cider_scores = {}
     mean_blue_score = 0.0
     y_arr = []
     y_hat_arr = []
-    # shape(logits): (batch size, 18, 32128) - shape(target): (batch size, 18)
-    # shape(logit_tokens): (3,18)
+    # shape(logits): (batch_size, length, vocab) - shape(target): (batch_size, length)
+    # shape(logit_tokens): (batch_size, length)
     logit_tokens = argmax_logits(logits)
     for l, t in zip(logit_tokens, target_tokens):
         y_hat, y = convert_to_text(l, t)
         y_arr.append(y)
         y_hat_arr.append(y_hat)
-        # print(f"Y: {y} | Yhat: {y_hat}")
+        # shape(y_hat_arr and y_arr): (batch_size,)
         try:
-            bleu_result = google_bleu.compute(predictions=[y_hat], references=[[y]])
-            bleu_result = bleu_result['google_bleu']
+            bleu_result = compute_bleu(predictions=[y_hat], references=[[y]])
         except:
             bleu_result = 0.0
         mean_blue_score += bleu_result
     bleu_score = mean_blue_score / len(logits)
-    # shape(y_hat_arr and y_arr): (batch size,)
-    # convert the shape of y_arr to (batch size, 1)
+    # convert the shape of y_arr to (batch_size, 1)
     reference = [ [x] for x in y_arr ]
-    # convert the shape of y_hat_arr to (batch size, 1)
+    # convert the shape of y_hat_arr to (batch_size, 1)
     hypothesis = [ [x] for x in y_hat_arr ]
-    for scorer, method in scorers:
-        # input shape of compute_score function is (batch size, 1)
-        score, scores = scorer.compute_score(reference, hypothesis)
-        if type(score) == list:
-            for m, s in zip(method, score):
-                cider_scores[m] = s    
-        else:
-            cider_scores[method] = score  
-    return float(cider_scores["CIDEr"]), float(bleu_score)
+    cider_score, cider_scores = cider.compute_cider_score(reference, hypothesis) 
+    return cider_score, bleu_score

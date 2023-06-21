@@ -1,17 +1,21 @@
 import copy
+import math
 from collections import defaultdict
 import numpy as np
-import math
 
-# Tính toán term frequency cho mỗi n-gram trong một câu. N-gram là một chuỗi các từ đứng liền nhau trong câu.
+
 def precook(s, n=4, out=False):
     """
-    Takes a string as input and returns an object that can be given to
-    either cook_refs or cook_test. This is optional: cook_refs and cook_test
-    can take string arguments as well.
-    :param s: string : sentence to be converted into ngrams
-    :param n: int    : number of ngrams for which representation is calculated
-    :return: term frequency vector for occuring ngrams
+    Precook a text by counting n-grams.
+
+    Args:
+        s (str): The input text.
+        n (int): The maximum n-gram size. Defaults to 4.
+        out (bool): Whether to output the n-gram counts. Defaults to False.
+
+    Returns:
+        dict or None: If `out` is True, returns a dictionary representing the counts of n-grams in the input text.
+                      Otherwise, returns None.
     """
     words = s.split()
     counts = defaultdict(int)
@@ -21,25 +25,32 @@ def precook(s, n=4, out=False):
             counts[ngram] += 1
     return counts
 
-# Tính toán term frequency cho mỗi n-gram trong mỗi câu mô tả hình.
-def cook_refs(refs, n=4): ## lhuang: oracle will call with "average"
-    '''Takes a list of reference sentences for a single segment
-    and returns an object that encapsulates everything that BLEU
-    needs to know about them.
-    :param refs: list of string : reference sentences for some image
-    :param n: int : number of ngrams for which (ngram) representation is calculated
-    :return: result (list of dict)
-    '''
+
+def cook_refs(refs, n=4):
+    """
+    Precook a list of reference texts by counting n-grams.
+
+    Args:
+        refs (list): A list of reference texts.
+        n (int): The maximum n-gram size. Defaults to 4.
+
+    Returns:
+        list: A list of dictionaries, where each dictionary represents the counts of n-grams in a reference text.
+    """
     return [precook(ref, n) for ref in refs]
 
-# Tính toán term frequency cho mỗi n-gram trong câu mô tả hình được đánh giá.
+
 def cook_test(test, n=4):
-    '''Takes a test sentence and returns an object that
-    encapsulates everything that BLEU needs to know about it.
-    :param test: list of string : hypothesis sentence for some image
-    :param n: int : number of ngrams for which (ngram) representation is calculated
-    :return: result (dict)
-    '''
+    """
+    Precook a test text by counting n-grams.
+
+    Args:
+        test (str): The test text.
+        n (int): The maximum n-gram size. Defaults to 4.
+
+    Returns:
+        dict: A dictionary representing the counts of n-grams in the test text.
+    """
     return precook(test, n, True)
 
 
@@ -60,7 +71,7 @@ class CiderScorer(object):
         self.document_frequency = defaultdict(float)
         self.cook_append(test, refs)
         self.ref_len = None
-
+    
     def cook_append(self, test, refs):
         '''called by constructor and __iadd__ to avoid creating new instances.'''
 
@@ -70,11 +81,12 @@ class CiderScorer(object):
                 self.ctest.append(cook_test(test)) ## N.B.: -1
             else:
                 self.ctest.append(None) # lens of crefs and ctest have to match
-
+                
     def size(self):
         assert len(self.crefs) == len(self.ctest), "refs/test mismatch! %d<>%d" % (len(self.crefs), len(self.ctest))
         return len(self.crefs)
-
+    
+    
     def __iadd__(self, other):
         '''add an instance (e.g., from another sentence).'''
 
@@ -86,27 +98,36 @@ class CiderScorer(object):
             self.crefs.extend(other.crefs)
 
         return self
+    
     def compute_doc_freq(self):
         '''
-        Compute term frequency for reference data.
-        This will be used to compute idf (inverse document frequency later)
-        The term frequency is stored in the object
-        :return: None
+        Compute the document frequency for the reference data.
+
+        This function calculates the term frequency for the reference data, which will be used to compute the
+        inverse document frequency (idf) later. The term frequency is stored in the object.
         '''
         for refs in self.crefs:
             # refs, k ref captions of one image
             for ngram in set([ngram for ref in refs for (ngram,count) in ref.items()]):
                 self.document_frequency[ngram] += 1
             # maxcounts[ngram] = max(maxcounts.get(ngram,0), count)
-
+    
     def compute_cider(self):
         def counts2vec(cnts):
             """
-            Function maps counts of ngram to vector of tfidf weights.
-            The function returns vec, an array of dictionary that store mapping of n-gram and tf-idf weights.
-            The n-th entry of array denotes length of n-grams.
-            :param cnts:
-            :return: vec (array of dict), norm (array of float), length (int)
+            Maps counts of n-grams to a vector of tf-idf weights.
+
+            This function takes the counts of n-grams and returns a vector `vec`, which is an array of dictionaries.
+            Each dictionary stores the mapping of an n-gram to its tf-idf weight. The n-th entry of the array denotes
+            the length of n-grams.
+
+            Args:
+                cnts: A dictionary containing the counts of n-grams.
+
+            Returns:
+                vec: An array of dictionaries, representing the tf-idf weights for each n-gram length.
+                norm: An array of floats, representing the norm of each vector.
+                length: An integer, representing the length of 1-grams.
             """
             vec = [defaultdict(float) for _ in range(self.n)]
             length = 0
@@ -125,18 +146,22 @@ class CiderScorer(object):
                     length += term_freq
             norm = [np.sqrt(n) for n in norm]
             return vec, norm, length
-
+        
         def sim(vec_hyp, vec_ref, norm_hyp, norm_ref, length_hyp, length_ref):
-            '''
+            """
             Compute the cosine similarity of two vectors.
-            :param vec_hyp: array of dictionary for vector corresponding to hypothesis
-            :param vec_ref: array of dictionary for vector corresponding to reference
-            :param norm_hyp: array of float for vector corresponding to hypothesis
-            :param norm_ref: array of float for vector corresponding to reference
-            :param length_hyp: int containing length of hypothesis
-            :param length_ref: int containing length of reference
-            :return: array of score for each n-grams cosine similarity
-            '''
+
+            Args:
+                vec_hyp: An array of dictionaries representing the vector corresponding to the hypothesis.
+                vec_ref: An array of dictionaries representing the vector corresponding to the reference.
+                norm_hyp: An array of floats representing the norm of the hypothesis vector.
+                norm_ref: An array of floats representing the norm of the reference vector.
+                length_hyp: An integer containing the length of the hypothesis.
+                length_ref: An integer containing the length of the reference.
+
+            Returns:
+                An array of scores for each n-gram's cosine similarity.
+            """
             delta = float(length_hyp - length_ref)
             # measure consine similarity
             val = np.array([0.0 for _ in range(self.n)])
@@ -175,8 +200,8 @@ class CiderScorer(object):
             # append score of an image to the score list
             scores.append(score_avg)
         return scores
-
-    def compute_score(self, option=None, verbose=0):
+    
+    def compute_cider_score(self, option=None, verbose=0):
         # compute idf
         self.compute_doc_freq()
         # assert to check document frequency
@@ -197,12 +222,17 @@ class Cider:
         # set the standard deviation parameter for gaussian penalty
         self._sigma = sigma
 
-    def compute_score(self, gts, res):
+    def compute_cider_score(self, gts, res):
         """
-        Main function to compute CIDEr score
-        :param  hypo_for_image (dict) : dictionary with key <image> and value <tokenized hypothesis / candidate sentence>
-                ref_for_image (dict)  : dictionary with key <image> and value <tokenized reference sentence>
-        :return: cider (float) : computed CIDEr score for the corpus 
+        Main function to compute CIDEr score.
+
+        Args:
+            gts (dict): A dictionary with keys as <image> and values as tokenized reference sentences.
+            res (dict): A dictionary with keys as <image> and values as tokenized hypothesis/candidate sentences.
+
+        Returns:
+            cider (float): Computed CIDEr score for the corpus.
+            scores (list): List of individual CIDEr scores for each image.
         """
         cider_scorer = CiderScorer(n=self._n, sigma=self._sigma)
         for id in range(len(res)):
@@ -214,8 +244,8 @@ class Cider:
             assert(type(ref) is list)
             assert(len(ref) > 0)
             cider_scorer += (hypo[0], ref)
-        (score, scores) = cider_scorer.compute_score()
+        score, scores = cider_scorer.compute_cider_score()
         return score, scores
 
     def method(self):
-        return "CIDEr"
+        return compute_cider_score
