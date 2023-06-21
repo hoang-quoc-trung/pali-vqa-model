@@ -3,14 +3,15 @@ import os
 import subprocess as sp
 from typing import Optional
 
+import wandb
 import jax
 import optax
 import orbax.checkpoint as orbax
 from flax import linen as nn
 from flax.core import FrozenDict, freeze, frozen_dict
 from flax.training import checkpoints, train_state
-from jax import numpy as jnp
 import numpy as np
+from jax import numpy as jnp
 from jax.lib import xla_bridge
 from functools import partial
 from models.pali import (
@@ -714,3 +715,33 @@ def save_parameters(
     np.savez_compressed(params_path, params_arr)
     
     return params_path
+
+
+def init_wandb(
+    config: dict,
+    project_name: str='pali_model',
+    key: str='2340e06838c8262d8e833f86e6d31eb8d76da1f4',
+    
+):
+    hpparams = config["hyperparams"]
+    T5 = config["t5"]
+    wandb.login(key=key)
+    wandb.init(
+        project=project_name,
+        config={
+            "architecture": "Transformer (ViT + T5)",
+            "image_size": hpparams["image_size"],
+            "encoder_input_tokens": hpparams["encoder_input_tokens"],
+            "decoder_input_tokens": hpparams["decoder_input_tokens"],
+            "decoder_target_tokens": hpparams["decoder_target_tokens"],
+            "vocab_size": T5["vocab_size"],
+            "vit_patches_embs_size": T5["vit_patches_embs_size"],
+            "train_steps": hpparams["num_steps"],
+            "val_steps": hpparams["val_steps"],
+            "save_steps": hpparams["save_steps"],
+            "train_batch_size": hpparams["train_batch_size"],
+            "val_batch_size": hpparams["val_batch_size"],
+            "learning_rate": hpparams["learning_rate"],
+            "grad_norm_clip": hpparams["grad_norm_clip"],
+        }
+    )

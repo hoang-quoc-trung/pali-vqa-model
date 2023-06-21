@@ -167,6 +167,7 @@ wcwidth==0.2.5
 Werkzeug==2.2.2
 wheel==0.38.4
 wrapt==1.14.1
+wandb==0.15.4  
 xxhash==3.2.0
 yarl==1.9.2
 zipp==3.12.0

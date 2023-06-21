@@ -4,6 +4,7 @@ import logging
 import os
 
 import numpy as np
+import wandb
 import yaml
 from data.make_dataset import getTFDataGenerator
 import jax
@@ -24,6 +25,7 @@ from utils.train_helper import (
     save_checkpoint_state_multi_gpu,
     save_history_multi_gpu,
     save_parameters,
+    init_wandb,
 )
 from utils.eval_helper import (
     load_checkpoint,
@@ -60,6 +62,8 @@ def main(args):
     LOGGER.info("Init PaLI model parameters")
     model = PaLI(cfg)
     variables = init_pali_params(cfg, model, args.seed)
+    LOGGER.info("Init WanDB")
+    init_wandb(cfg)
 
     # Load pretrained model
     LOGGER.info("Loading ViT pretrained model")
@@ -170,8 +174,8 @@ def main(args):
             
             if step % save_steps == 0:
                 avg_train_loss = np.mean(train_loss)
-                LOGGER.info(
-                    "Mean training in the {} previous steps -> loss: {:.3f}".format(save_steps, avg_train_loss))
+                LOGGER.info( "Mean training in the {} previous steps -> loss: {:.3f}".format(save_steps, avg_train_loss))
+                wandb.log({"step": step, "train_loss": avg_train_loss})
                 # Reset the train history
                 train_loss = []
                 
@@ -198,6 +202,7 @@ def main(args):
     # save_checkpoint_state_multi_gpu(cfg, state)
     # save_path = save_parameters(cfg, state, step)
     # LOGGER.info("Training finished! Save the final checkpoint in {}".format(save_path))
+    wandb.finish()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="PaLI training script")

@@ -202,5 +202,6 @@ dependencies:
       # - vit-jax==0.0.8
       - werkzeug==2.2.2
       - wrapt==1.14.1
+      - wandb==0.15.4
       - zipp==3.12.0
 prefix: /home/tpnam/.env/jax

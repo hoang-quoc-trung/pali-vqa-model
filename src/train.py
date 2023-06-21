@@ -11,6 +11,8 @@ from jax import numpy as jnp
 import flax
 from flax.training import checkpoints
 from flax.core import freeze, unfreeze
+from tqdm import tqdm
+import wandb
 from models.pali import PaLI
 from tqdm import tqdm
 from utils.train_helper import (
@@ -23,6 +25,7 @@ from utils.train_helper import (
     save_checkpoint_state,
     save_history,
     save_parameters,
+    init_wandb,
 )
 from utils.eval_helper import (
     load_checkpoint,
@@ -60,7 +63,9 @@ def main(args):
     LOGGER.info("Init PaLI model parameters")
     model = PaLI(cfg)
     variables = init_pali_params(cfg, model, args.seed)
-
+    LOGGER.info("Init WanDB")
+    init_wandb(cfg)
+    
     # Load pretrained model
     LOGGER.info("Loading ViT pretrained model")
     variables = load_ViT_pretrained(cfg, variables)
@@ -180,6 +185,7 @@ def main(args):
                         save_steps, avg_train_loss, avg_train_cider*100, avg_train_bleu*100
                     )
                 )
+                wandb.log({"step": step, "train_loss": avg_train_loss, "train_cider": avg_train_cider*100, "train_bleu": avg_train_bleu*100})
                 # Reset the train history
                 train_cider, train_bleu, train_loss = [], [], []
                 
@@ -190,6 +196,7 @@ def main(args):
                         save_steps, val_loss, val_cider * 100, val_bleu * 100
                     )
                 )
+                wandb.log({"step": step, "val_loss": val_loss, "val_cider": val_cider*100, "val_bleu": val_bleu*100})
                 save_history(
                     cfg,
                     step=step,
@@ -215,6 +222,7 @@ def main(args):
     # save_checkpoint_state(cfg, state)
     # save_path = save_parameters(cfg, state, step)
     # LOGGER.info("Training finished! Save the final checkpoint in {}".format(save_path))
+    wandb.finish()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="PaLI training script")
