@@ -132,22 +132,26 @@ def main(args):
     train_step, eval_step = get_train_val_step_multi_gpu(cfg) 
     
     def evaluation(state, val_steps):
-        val_loss = []
+        val_cider, val_loss, val_bleu = [], [], []
         with tqdm(total=val_steps) as pbar:
             for _ in range(val_steps):
                 while True:
                     try:
-                        X, y = data_parallel(data=val_ds_iter, num_devices=num_devices)
-                        loss = eval_step(state, X, y)
+                        X, y = next(val_ds_iter)
+                        loss, cider, bleu = eval_step(state, X, y)
                         break
                     except Exception as e:
                         LOGGER.info(f'Warmming: {str(e)}, next data!')
                 # Save history of metrics across the entire batch
+                val_cider.append(cider)
                 val_loss.append(loss)
+                val_bleu.append(bleu)
                 # Update progress bar
-                pbar.set_description( f"Validation -> loss: {loss:.3f}")
+                pbar.set_description(
+                    f"Validation -> loss: {loss:.3f} - cider: {cider*100:.2f}% - bleu: {bleu*100:.2f}%"
+                )
                 pbar.update(1)
-        return np.mean(val_loss)
+        return np.mean(val_loss), np.mean(val_cider), np.mean(val_bleu)
 
     LOGGER.info("Start training...")
     """--------------------------------- Start Training Loop ---------------------------------"""
@@ -180,12 +184,19 @@ def main(args):
                 train_loss = []
                 
                 LOGGER.info("Performing evaluation...")
-                val_loss = evaluation(state, val_steps)
-                LOGGER.info("Mean validation in the {} previous steps -> loss: {:.3f}".format(save_steps, val_loss))
+                val_loss, val_cider, val_bleu = evaluation(flax.jax_utils.unreplicate(state), val_steps)
+                LOGGER.info(
+                    "Mean validation in the {} previous steps -> loss: {:.3f} - cider: {:.2f}% - bleu: {:.2f}% ".format(
+                        save_steps, val_loss, val_cider * 100, val_bleu * 100
+                    )
+                )
+                wandb.log({"step": step, "val_loss": val_loss, "val_cider": val_cider*100, "val_bleu": val_bleu*100})
                 save_history_multi_gpu(
                     cfg,
                     step=step,
                     train_loss=avg_train_loss,
+                    val_cider=val_cider,
+                    val_bleu=val_bleu,
                     val_loss=val_loss,
                 )
                 # # Save the checkpoint with the highest val_cider_score

@@ -14,7 +14,6 @@ from flax.core import freeze, unfreeze
 from tqdm import tqdm
 import wandb
 from models.pali import PaLI
-from tqdm import tqdm
 from utils.train_helper import (
     create_train_state,
     get_train_val_step,
@@ -162,11 +161,10 @@ def main(args):
             while True:
                 try:
                     X, y = next(train_ds_iter)
-                    state, loss, cider = train_step(state, X, y)
+                    state, loss, cider, bleu = train_step(state, X, y)
                     break  
                 except Exception as e:
                     LOGGER.info(f'Warmming: {str(e)}, next data!') 
-            state, loss, cider, bleu = train_step(state, X, y)
             # Update progress bar and save history of metrics
             train_cider.append(cider)
             train_loss.append(loss)
