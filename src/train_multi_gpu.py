@@ -28,8 +28,6 @@ from utils.train_helper import (
 from utils.eval_helper import (
     load_checkpoint,
 )
-from jax.config import config
-config.update("jax_debug_nans", True)
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(levelname)-8s %(message)s"

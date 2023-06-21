@@ -12,9 +12,7 @@ from flax.training import checkpoints, train_state
 from jax import numpy as jnp
 import numpy as np
 from jax.lib import xla_bridge
-from jax.config import config
 from functools import partial
-config.update("jax_debug_nans", True)
 from models.pali import (
     cider_score,
     bleu_score,
