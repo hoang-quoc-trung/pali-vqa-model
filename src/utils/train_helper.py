@@ -45,6 +45,7 @@ def hardware_setting(
         return "cpu"
     elif get_hardware_backend() == "gpu":
         os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu_id)
+        os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "gpu"
         if set_memory_growth:
             os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
         else:
@@ -53,7 +54,7 @@ def hardware_setting(
             memory_limit = (
                 total_gpu_memory * args.gpu_memory_fraction / total_gpu_memory
             )
-            os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = str(memory_limit)
+            os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = str(memory_limit) # Allocate GPU memory
         return "gpu"
 
 
@@ -521,18 +522,14 @@ def get_train_val_step_multi_gpu(
     return train_step_multi_gpu, eval_step_multi_gpu
 
 
-def load_data(
-    multi_devices: bool,
+def data_parallel(
     data,
     num_devices: Optional[int] = None,
 ):
-    """Load and preprocess data for model training or evaluation.
-
-    This function loads the data from the provided iterator `data` and preprocesses it.
-    If `multi_devices` is set to `True`, it reshapes the data to be compatible with multiple devices.
+    """Reshape images from [num_devices * batch_size, height, width, channels]
+            to [num_devices, batch_size, height, width, img_channels]
 
     Args:
-        multi_devices (bool): Flag indicating whether the data should be reshaped for multiple devices.
         data: Iterator providing the data for training or evaluation.
         num_devices (int, optional): Number of devices to consider when reshaping the data. Defaults to None.
 
@@ -540,33 +537,22 @@ def load_data(
         Tuple: A tuple containing the preprocessed input data `X` and the corresponding target data `y`.
 
     """
-    
-    while True:
-        try:
-            X, y = next(data)
-            break  
-        except:
-            print('Token count exceeds token_length, next data!')
-    
-    if multi_devices: 
-        """ Reshape images from [num_devices * batch_size, height, width, channels]
-            to [num_devices, batch_size, height, width, img_channels]
-        """  
-        X = {
-            "images": X["images"].reshape(
-                [num_devices, -1] + list(X["images"].shape[1:])
-            ),
-            "encoder_input_tokens": X["encoder_input_tokens"].reshape(
-                [num_devices, -1] + list(X["encoder_input_tokens"].shape[1:])
-            ),
-            "decoder_input_tokens": X["decoder_input_tokens"].reshape(
-                [num_devices, -1] + list(X["decoder_input_tokens"].shape[1:])
-            ),
-            "decoder_target_tokens": X["decoder_target_tokens"].reshape(
-                [num_devices, -1] + list(X["decoder_target_tokens"].shape[1:])
-            ),
-        }
-        y = y.reshape([num_devices, -1] + list(y.shape[1:]))
+    X, y = next(data)
+    X = {
+        "images": X["images"].reshape(
+            [num_devices, -1] + list(X["images"].shape[1:])
+        ),
+        "encoder_input_tokens": X["encoder_input_tokens"].reshape(
+            [num_devices, -1] + list(X["encoder_input_tokens"].shape[1:])
+        ),
+        "decoder_input_tokens": X["decoder_input_tokens"].reshape(
+            [num_devices, -1] + list(X["decoder_input_tokens"].shape[1:])
+        ),
+        "decoder_target_tokens": X["decoder_target_tokens"].reshape(
+            [num_devices, -1] + list(X["decoder_target_tokens"].shape[1:])
+        ),
+    }
+    y = y.reshape([num_devices, -1] + list(y.shape[1:]))
         
     return X, y
 

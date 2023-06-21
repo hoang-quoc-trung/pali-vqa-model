@@ -20,7 +20,7 @@ from utils.train_helper import (
     init_pali_params,
     load_T5x_pretrained,
     load_ViT_pretrained,
-    load_data,
+    data_parallel,
     save_checkpoint_state_multi_gpu,
     save_history_multi_gpu,
     save_parameters,
@@ -131,8 +131,13 @@ def main(args):
         val_loss = []
         with tqdm(total=val_steps) as pbar:
             for _ in range(val_steps):
-                X, y = load_data(multi_devices=True, data=val_ds_iter, num_devices=num_devices)
-                loss = eval_step(state, X, y)
+                while True:
+                    try:
+                        X, y = data_parallel(data=val_ds_iter, num_devices=num_devices)
+                        loss = eval_step(state, X, y)
+                        break
+                    except Exception as e:
+                        LOGGER.info(f'Warmming: {str(e)}, next data!')
                 # Save history of metrics across the entire batch
                 val_loss.append(loss)
                 # Update progress bar
@@ -151,8 +156,13 @@ def main(args):
         train_loss = []
         for step in range(1, num_steps + 1):
             # Train the model
-            X, y = load_data(multi_devices=True, data=train_ds_iter, num_devices=num_devices)
-            state, loss = train_step(state, X, y)
+            while True:
+                try:
+                    X, y = data_parallel(data=train_ds_iter, num_devices=num_devices)
+                    state, loss = train_step(state, X, y)
+                    break  
+                except Exception as e:
+                    LOGGER.info(f'Warmming: {str(e)}, next data!')
             # Update progress bar and save history of metrics
             train_loss.append(loss)
             pbar.set_description(f"Training -> loss: {loss:.3f}")
@@ -199,5 +209,6 @@ if __name__ == "__main__":
     )
     parser.add_argument("--gpu_id", type=int, default=0, help="GPU device id")
     parser.add_argument("--seed", type=int, default=0, help="Random seed")
+    parser.add_argument("--gpu_memory_fraction", type=float, default=1.0)
     args = parser.parse_args()
     main(args)

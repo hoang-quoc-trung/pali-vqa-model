@@ -20,7 +20,6 @@ from utils.train_helper import (
     init_pali_params,
     load_T5x_pretrained,
     load_ViT_pretrained,
-    load_data,
     save_checkpoint_state,
     save_history,
     save_parameters,
@@ -127,8 +126,13 @@ def main(args):
         val_cider, val_loss, val_bleu = [], [], []
         with tqdm(total=val_steps) as pbar:
             for _ in range(val_steps):
-                X, y = load_data(multi_devices=False, data=val_ds_iter)
-                loss, cider, bleu = eval_step(state, X, y)
+                while True:
+                    try:
+                        X, y = next(val_ds_iter)
+                        loss, cider, bleu = eval_step(state, X, y)
+                        break  
+                    except Exception as e:
+                        LOGGER.info(f'Warmming: {str(e)}, next data!')
                 # Save history of metrics across the entire batch
                 val_cider.append(cider)
                 val_loss.append(loss)
@@ -150,8 +154,13 @@ def main(args):
     with tqdm(total=num_steps) as pbar:
         train_cider, train_bleu, train_loss = [], [], []
         for step in range(1, num_steps + 1):
-            # Train the model
-            X, y = load_data(multi_devices=False, data=train_ds_iter)
+            while True:
+                try:
+                    X, y = next(train_ds_iter)
+                    state, loss, cider = train_step(state, X, y)
+                    break  
+                except Exception as e:
+                    LOGGER.info(f'Warmming: {str(e)}, next data!') 
             state, loss, cider, bleu = train_step(state, X, y)
             # Update progress bar and save history of metrics
             train_cider.append(cider)
@@ -217,5 +226,6 @@ if __name__ == "__main__":
     )
     parser.add_argument("--gpu_id", type=int, default=0, help="GPU device id")
     parser.add_argument("--seed", type=int, default=0, help="Random seed")
+    parser.add_argument("--gpu_memory_fraction", type=float, default=1.0)
     args = parser.parse_args()
     main(args)
