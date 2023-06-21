@@ -181,8 +181,8 @@ def main(args):
                 #     save_path = save_parameters(cfg, state, step)
                 #     LOGGER.info("Save the best checkpoint in {}".format(save_path))
                 
-                save_path = save_parameters(cfg, state, step)
-                LOGGER.info("Save the best checkpoint in {}".format(save_path))
+                save_path = save_parameters(cfg, flax.jax_utils.unreplicate(state), step)
+                LOGGER.info("Save the best checkpoint in {}".format(save_path))          
 
     # Save the final checkpoint
     # save_checkpoint_state_multi_gpu(cfg, state)
