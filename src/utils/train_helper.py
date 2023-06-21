@@ -232,15 +232,18 @@ def create_train_state(
         References:
             Chen et al, 2023: https://arxiv.org/abs/2302.06675
         """
-        tx = optax.multi_transform(
-            {
-                'lion': get_optimizer(optimizer_name)(
-                    learning_rate=hpparams["learning_rate"],
-                    weight_decay=1e-2
-                ),
-                'zero': zero_grads(),
-            },
-            trainable_mask,
+        tx = optax.chain(
+            optax.multi_transform(
+                {
+                    'lion': get_optimizer(optimizer_name)(
+                        learning_rate=hpparams["learning_rate"],
+                        weight_decay=1e-2
+                    ),
+                    'zero': zero_grads(),
+                },
+                trainable_mask,
+            )
+            optax.clip_by_global_norm(hpparams["grad_norm_clip"])
         )
 
     elif optimizer_name == 'adafactor':
@@ -253,17 +256,21 @@ def create_train_state(
         References:
             Shazeer and Stern, 2018: https://arxiv.org/abs/1804.04235
         """
-        tx = optax.multi_transform(
-            {
-                'adafactor': get_optimizer(optimizer_name)(
-                    learning_rate=hpparams["learning_rate"],
-                    decay_rate=0.8,
-                    eps=1e-30,
-                    decay_offset=0
-                ),
-                'zero': zero_grads(),
-            },
-            trainable_mask,
+        tx = optax.chain(
+            optax.multi_transform(
+                {
+                    'adafactor': get_optimizer(optimizer_name)(
+                        learning_rate=hpparams["learning_rate"],
+                        decay_rate=0.8,
+                        eps=1e-30,
+                        decay_offset=0
+                    ),
+                    'zero': zero_grads(),
+                },
+                trainable_mask,
+                
+            ), 
+            optax.clip_by_global_norm(hpparams["grad_norm_clip"])
         )
         
     elif optimizer_name == 'adagrad':
@@ -279,16 +286,19 @@ def create_train_state(
         References:
             Duchi et al, 2011: https://jmlr.org/papers/v12/duchi11a.html
         """
-        tx = optax.multi_transform(
-            {
-                'adagrad': get_optimizer(optimizer_name)(
-                    learning_rate=hpparams["learning_rate"],
-                    initial_accumulator_value=0.1,
-                    eps=1e-7
-                ),
-                'zero': zero_grads(),
-            },
-            trainable_mask,
+        tx = optax.chain(
+            optax.multi_transform(
+                {
+                    'adagrad': get_optimizer(optimizer_name)(
+                        learning_rate=hpparams["learning_rate"],
+                        initial_accumulator_value=0.1,
+                        eps=1e-7
+                    ),
+                    'zero': zero_grads(),
+                },
+                trainable_mask,
+            )
+            optax.clip_by_global_norm(hpparams["grad_norm_clip"])
         )
         
     elif optimizer_name == 'adamw':
@@ -302,18 +312,21 @@ def create_train_state(
         References:
             Loshchilov et al, 2019: https://arxiv.org/abs/1711.05101
         """
-        tx = optax.multi_transform(
-            {
-                'adamw': get_optimizer(optimizer_name)(
-                    learning_rate=hpparams["learning_rate"],
-                    b1=0.9,
-                    b2=0.999,
-                    eps=1e-8,
-                    weight_decay=1e-4
-                ),
-                'zero': zero_grads(),
-            },
-            trainable_mask,
+        tx = optax.chain(
+            optax.multi_transform(
+                {
+                    'adamw': get_optimizer(optimizer_name)(
+                        learning_rate=hpparams["learning_rate"],
+                        b1=0.9,
+                        b2=0.999,
+                        eps=1e-8,
+                        weight_decay=1e-4
+                    ),
+                    'zero': zero_grads(),
+                },
+                trainable_mask,
+            )
+            optax.clip_by_global_norm(hpparams["grad_norm_clip"])
         )
         
     elif optimizer_name == 'sgd':
@@ -326,16 +339,19 @@ def create_train_state(
         References:
             Sutskever et al, 2013: http://proceedings.mlr.press/v28/sutskever13.pdf
         """
-        tx = optax.multi_transform(
-            {
-                'sgd': get_optimizer(optimizer_name)(
-                    learning_rate=hpparams["learning_rate"],
-                    momentum=None,
-                    nesterov=False,
-                ),
-                'zero': zero_grads(),
-            },
-            trainable_mask,
+        tx = optax.chain(
+            optax.multi_transform(
+                {
+                    'sgd': get_optimizer(optimizer_name)(
+                        learning_rate=hpparams["learning_rate"],
+                        momentum=None,
+                        nesterov=False,
+                    ),
+                    'zero': zero_grads(),
+                },
+                trainable_mask,
+            )
+            optax.clip_by_global_norm(hpparams["grad_norm_clip"])
         )
         
     else:
@@ -348,25 +364,21 @@ def create_train_state(
         References:
             Kingma et al, 2014: https://arxiv.org/abs/1412.6980
         """
-        tx = optax.multi_transform(
-            {
-                'adam': get_optimizer(optimizer_name)(
-                    learning_rate=hpparams["learning_rate"],
-                    b1=0.9,
-                    b2=0.999,
-                    eps=1e-8
-                ),
-                'zero': zero_grads(),
-            },
-            trainable_mask,
+        tx = optax.chain(
+            optax.multi_transform(
+                {
+                    'adam': get_optimizer(optimizer_name)(
+                        learning_rate=hpparams["learning_rate"],
+                        b1=0.9,
+                        b2=0.999,
+                        eps=1e-8
+                    ),
+                    'zero': zero_grads(),
+                },
+                trainable_mask,
+            )
+            optax.clip_by_global_norm(hpparams["grad_norm_clip"])
         )
-    
-    # tx = optax.chain(
-    #     optax.clip_by_global_norm(hpparams["grad_norm_clip"]),
-    #     optax.adamw(
-    #         learning_rate=hpparams["learning_rate"],
-    #     ),
-    # )
 
     # Create the train state
     return train_state.TrainState.create(apply_fn=model.apply, tx=tx, params=variables)
@@ -498,8 +510,30 @@ def get_train_val_step_multi_gpu(
         new_state, loss = _train_step_multi_gpu(state, X, y)
         return new_state, loss[0]
 
-    @partial(jax.pmap, axis_name="num_devices")
-    def _eval_step_multi_gpu(state: train_state.TrainState, X, y):
+    # @partial(jax.pmap, axis_name="num_devices")
+    # def _eval_step_multi_gpu(state: train_state.TrainState, X, y):
+    #     outputs = state.apply_fn(state.params, **X)
+    #     logits = outputs["logits"]
+    #     """ NOTE: When fine-tuning the public T5 checkpoints (trained in T5 MeshTF) the loss normalizing
+    #                 factor should be set to pretraining batch_size * target_token_length.
+    #     """
+    #     loss_normalizing_factor = y.shape[0] * y.shape[1]
+    #     loss = compute_weighted_cross_entropy(
+    #         logits=logits,
+    #         targets=y,
+    #         label_smoothing=0.0,
+    #         z_loss=0.0001,
+    #         loss_normalizing_factor=loss_normalizing_factor,
+    #     )[0]
+    #     loss = jax.lax.pmean(loss, axis_name="num_devices")
+    #     return loss
+    
+    # def eval_step_multi_gpu(state: train_state.TrainState, X, y):
+    #     loss = _eval_step_multi_gpu(state, X, y)
+    #     return loss[0]
+    
+    @jax.jit
+    def _eval_step(state: train_state.TrainState, X, y):
         outputs = state.apply_fn(state.params, **X)
         logits = outputs["logits"]
         """ NOTE: When fine-tuning the public T5 checkpoints (trained in T5 MeshTF) the loss normalizing
@@ -513,14 +547,14 @@ def get_train_val_step_multi_gpu(
             z_loss=0.0001,
             loss_normalizing_factor=loss_normalizing_factor,
         )[0]
-        loss = jax.lax.pmean(loss, axis_name="num_devices")
-        return loss
+        return loss, logits
+
+    def eval_step(state: train_state.TrainState, X, y):
+        loss, logits = _eval_step(state, X, y)
+        cider, bleu = combine_metrics(logits, y)
+        return loss, cider, bleu
     
-    def eval_step_multi_gpu(state: train_state.TrainState, X, y):
-        loss = _eval_step_multi_gpu(state, X, y)
-        return loss[0]
-    
-    return train_step_multi_gpu, eval_step_multi_gpu
+    return train_step_multi_gpu, eval_step
 
 
 def data_parallel(
@@ -675,7 +709,7 @@ def save_history_multi_gpu(
     os.makedirs(hpparams["save_history_dir"], exist_ok=True)
     file_path = os.path.join(hpparams["save_history_dir"], file_name)
     with open(file_path, mode="a", newline="") as csv_file:
-        fieldnames = ["step", "train_loss", "val_loss"]
+        fieldnames = ["step", "train_loss", "val_cider", "val_bleu", "val_loss"]
         writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
         # write the header row
         if csv_file.tell() == 0:
@@ -685,6 +719,8 @@ def save_history_multi_gpu(
             {
                 "step": step,
                 "train_loss": train_loss,
+                "val_cider": val_cider,
+                "val_bleu": val_bleu,
                 "val_loss": val_loss,
             }
         )

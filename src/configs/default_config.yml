@@ -2,7 +2,7 @@
 dataset:
   training:
     data_root: '/kaggle/input/big-vqa-train/coco_textvqa/imgs' # ../../../input/coco-vqa-train/train
-    csv_file: '/kaggle/input/big-vqa-train/train.csv'
+    csv_file: '/kaggle/input/big-vqa-train/train_without_yes_no.csv'
   validation:
     data_root: '/kaggle/input/coco-vqa-val/val/val2014'
     csv_file: '/kaggle/input/coco-vqa-val/val/val.csv'
@@ -14,17 +14,16 @@ hyperparams:
   encoder_input_tokens: 38
   decoder_input_tokens: 18
   decoder_target_tokens: 18
-  train_batch_size: 128
-  val_batch_size: 128
-  learning_rate: 0.0001
-  # momentum: 0.9
-  # grad_norm_clip: 1.0
+  learning_rate: 0.0007
+  grad_norm_clip: 1.0
+  train_batch_size: 64
+  val_batch_size: 64
   num_steps: 50000
-  save_steps: 500
-  val_steps: 50
+  save_steps: 2000
+  val_steps: 200
   save_checkpoint_dir: '...'
   load_checkpoint_dir: '...'
-  load_params_dir: '...'
+  load_params_dir: '/kaggle/working/pali-model/src/checkpoints/params/params_9000.npz'
   save_params_dir: '/kaggle/working/pali-model/src/checkpoints/params'
   save_history_dir: '/kaggle/working/pali-model/src/checkpoints/history_log'
 t5:
