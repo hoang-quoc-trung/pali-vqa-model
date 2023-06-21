@@ -1,7 +1,7 @@
 ---
 dataset:
   training:
-    data_root: '/kaggle/input/big-vqa-train/coco_textvqa/imgs' # ../../../input/coco-vqa-train/train
+    data_root: '/kaggle/input/big-vqa-train/coco_textvqa/imgs'
     csv_file: '/kaggle/input/big-vqa-train/train_without_yes_no.csv'
   validation:
     data_root: '/kaggle/input/coco-vqa-val/val/val2014'
@@ -23,7 +23,7 @@ hyperparams:
   val_steps: 200
   save_checkpoint_dir: '...'
   load_checkpoint_dir: '...'
-  load_params_dir: '/kaggle/working/pali-model/src/checkpoints/params/params_9000.npz'
+  load_params_dir: '...'
   save_params_dir: '/kaggle/working/pali-model/src/checkpoints/params'
   save_history_dir: '/kaggle/working/pali-model/src/checkpoints/history_log'
 t5:

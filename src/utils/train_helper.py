@@ -242,7 +242,7 @@ def create_train_state(
                     'zero': zero_grads(),
                 },
                 trainable_mask,
-            )
+            ),
             optax.clip_by_global_norm(hpparams["grad_norm_clip"])
         )
 
@@ -297,7 +297,7 @@ def create_train_state(
                     'zero': zero_grads(),
                 },
                 trainable_mask,
-            )
+            ),
             optax.clip_by_global_norm(hpparams["grad_norm_clip"])
         )
         
@@ -325,7 +325,7 @@ def create_train_state(
                     'zero': zero_grads(),
                 },
                 trainable_mask,
-            )
+            ),
             optax.clip_by_global_norm(hpparams["grad_norm_clip"])
         )
         
@@ -350,7 +350,7 @@ def create_train_state(
                     'zero': zero_grads(),
                 },
                 trainable_mask,
-            )
+            ),
             optax.clip_by_global_norm(hpparams["grad_norm_clip"])
         )
         
@@ -376,7 +376,7 @@ def create_train_state(
                     'zero': zero_grads(),
                 },
                 trainable_mask,
-            )
+            ),
             optax.clip_by_global_norm(hpparams["grad_norm_clip"])
         )
 
