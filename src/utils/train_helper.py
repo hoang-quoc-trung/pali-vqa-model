@@ -691,6 +691,8 @@ def save_history_multi_gpu(
     step: int,
     train_loss: float,
     val_loss: float,
+    val_cider: float,
+    val_bleu: float,
     file_name="history_multi_gpu.csv",
 ):
     """Save training history of multi-GPU to a CSV file
@@ -709,7 +711,7 @@ def save_history_multi_gpu(
     os.makedirs(hpparams["save_history_dir"], exist_ok=True)
     file_path = os.path.join(hpparams["save_history_dir"], file_name)
     with open(file_path, mode="a", newline="") as csv_file:
-        fieldnames = ["step", "train_loss", "val_cider", "val_bleu", "val_loss"]
+        fieldnames = ["step", "train_loss", "val_loss", "val_cider", "val_bleu"]
         writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
         # write the header row
         if csv_file.tell() == 0:
@@ -719,9 +721,9 @@ def save_history_multi_gpu(
             {
                 "step": step,
                 "train_loss": train_loss,
+                "val_loss": val_loss,
                 "val_cider": val_cider,
                 "val_bleu": val_bleu,
-                "val_loss": val_loss,
             }
         )
         
