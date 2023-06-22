@@ -1,5 +1,5 @@
 # PaLI model
-PaLI is a unified language-image model trained to perform many tasks and in over 100 languages.
+PaLI is a unified language-image model trained to perform many tasks and in over 100 languages.\
 Paper: [PaLI: A Jointly-Scaled Multilingual Language-Image Model (2022)](https://arxiv.org/pdf/2209.06794.pdf)
 
 ![PaLI Architecture](./docs/PaLI.gif)
