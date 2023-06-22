@@ -136,7 +136,7 @@ def main(args):
                         loss, cider, bleu = eval_step(state, X, y)
                         break  
                     except Exception as e:
-                        LOGGER.info(f'Warmming: {str(e)}, next data!')
+                        LOGGER.info('Token count exceeds token_length, next data!')
                 # Save history of metrics across the entire batch
                 val_cider.append(cider)
                 val_loss.append(loss)
@@ -150,10 +150,11 @@ def main(args):
 
     LOGGER.info("Start training...")
     """--------------------------------- Start Training Loop ---------------------------------"""
-    # Create iterator for train and validation dataset
+    
     num_steps, save_steps = hpparams["num_steps"], hpparams["save_steps"]
     val_steps = val_ds_len if hpparams["val_steps"] is None else hpparams["val_steps"]
     best_val_cider = 0.0
+    # Create iterator for train and validation dataset
     train_ds_iter, val_ds_iter = iter(train_ds), iter(val_ds)
     with tqdm(total=num_steps) as pbar:
         train_cider, train_bleu, train_loss = [], [], []
@@ -164,7 +165,8 @@ def main(args):
                     state, loss, cider, bleu = train_step(state, X, y)
                     break  
                 except Exception as e:
-                    LOGGER.info(f'Warmming: {str(e)}, next data!') 
+                    LOGGER.info('Token count exceeds token_length, next data!')
+                    
             # Update progress bar and save history of metrics
             train_cider.append(cider)
             train_loss.append(loss)
@@ -212,7 +214,6 @@ def main(args):
                 #     # save_checkpoint_state(cfg, state)
                 #     save_path = save_parameters(cfg, state, step)
                 #     LOGGER.info("Save the best checkpoint in {}".format(save_path))
-                
                 save_path = save_parameters(cfg, state, step)
                 LOGGER.info("Save the best checkpoint in {}".format(save_path))
 

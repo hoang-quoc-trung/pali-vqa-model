@@ -256,22 +256,21 @@ def create_train_state(
         References:
             Shazeer and Stern, 2018: https://arxiv.org/abs/1804.04235
         """
-        tx = optax.chain(
-            optax.multi_transform(
-                {
-                    'adafactor': get_optimizer(optimizer_name)(
-                        learning_rate=hpparams["learning_rate"],
-                        decay_rate=0.8,
-                        eps=1e-30,
-                        decay_offset=0
-                    ),
-                    'zero': zero_grads(),
-                },
-                trainable_mask,
-                
-            ), 
-            optax.clip_by_global_norm(hpparams["grad_norm_clip"])
+        tx = optax.multi_transform(
+            {
+                'adafactor': get_optimizer(optimizer_name)(
+                    learning_rate=hpparams["learning_rate"],
+                    decay_rate=0.8,
+                    eps=1e-30,
+                    decay_offset=0,
+                    momentum=0.9,
+                    clipping_threshold=hpparams["grad_norm_clip"],
+                ),
+                'zero': zero_grads(),
+            },
+            trainable_mask,
         )
+
         
     elif optimizer_name == 'adagrad':
         """ The Adagrad optimizer.

@@ -141,7 +141,7 @@ def main(args):
                         loss, cider, bleu = eval_step(state, X, y)
                         break
                     except Exception as e:
-                        LOGGER.info(f'Warmming: {str(e)}, next data!')
+                        LOGGER.info('Token count exceeds token_length, next data!')
                 # Save history of metrics across the entire batch
                 val_cider.append(cider)
                 val_loss.append(loss)
@@ -155,22 +155,24 @@ def main(args):
 
     LOGGER.info("Start training...")
     """--------------------------------- Start Training Loop ---------------------------------"""
-    # Create iterator for train and validation dataset
+    
     num_steps, save_steps = hpparams["num_steps"], hpparams["save_steps"]
     val_steps = val_ds_len if hpparams["val_steps"] is None else hpparams["val_steps"]
     best_val_loss = 0.0
+    # Create iterator for train and validation dataset
     train_ds_iter, val_ds_iter = iter(train_ds), iter(val_ds)
     with tqdm(total=num_steps) as pbar:
         train_loss = []
+        # Train the model
         for step in range(1, num_steps + 1):
-            # Train the model
             while True:
                 try:
                     X, y = data_parallel(data=train_ds_iter, num_devices=num_devices)
                     state, loss = train_step(state, X, y)
                     break  
                 except Exception as e:
-                    LOGGER.info(f'Warmming: {str(e)}, next data!')
+                    LOGGER.info('Token count exceeds token_length, next data!')
+                    
             # Update progress bar and save history of metrics
             train_loss.append(loss)
             pbar.set_description(f"Training -> loss: {loss:.3f}")
@@ -180,8 +182,7 @@ def main(args):
                 avg_train_loss = np.mean(train_loss)
                 LOGGER.info( "Mean training in the {} previous steps -> loss: {:.3f}".format(save_steps, avg_train_loss))
                 wandb.log({"step": step, "train_loss": avg_train_loss})
-                # Reset the train history
-                train_loss = []
+                train_loss = [] # Reset the train history
                 
                 LOGGER.info("Performing evaluation...")
                 val_loss, val_cider, val_bleu = evaluation(flax.jax_utils.unreplicate(state), val_steps)
@@ -202,16 +203,15 @@ def main(args):
                 # # Save the checkpoint with the highest val_cider_score
                 # if val_loss > best_val_loss:
                 #     best_val_loss = val_loss
-                #     # save_checkpoint_state_multi_gpu(cfg, state)
-                #     save_path = save_parameters(cfg, state, step)
+                #     save_checkpoint_state_multi_gpu(cfg, state)
+                #     save_path = save_parameters(cfg, flax.jax_utils.unreplicate(state), step)
                 #     LOGGER.info("Save the best checkpoint in {}".format(save_path))
-                
                 save_path = save_parameters(cfg, flax.jax_utils.unreplicate(state), step)
                 LOGGER.info("Save the best checkpoint in {}".format(save_path))          
 
     # Save the final checkpoint
     # save_checkpoint_state_multi_gpu(cfg, state)
-    # save_path = save_parameters(cfg, state, step)
+    # save_path = save_parameters(cfg, flax.jax_utils.unreplicate(state), step)
     # LOGGER.info("Training finished! Save the final checkpoint in {}".format(save_path))
     wandb.finish()
 
