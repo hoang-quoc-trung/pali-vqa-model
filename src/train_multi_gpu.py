@@ -120,11 +120,15 @@ def main(args):
     train_ds, _ = getTFDataGenerator(
         data_root=ds_cfg["training"]["data_root"],
         csv_file=ds_cfg["training"]["csv_file"],
+        encoder_input_tokens=hpparams['encoder_input_tokens'],
+        decoder_target_tokens=hpparams['decoder_target_tokens'],
         batch_size=train_batch_size,
     )
     val_ds, val_ds_len = getTFDataGenerator(
         data_root=ds_cfg["validation"]["data_root"],
         csv_file=ds_cfg["validation"]["csv_file"],
+        encoder_input_tokens=hpparams['encoder_input_tokens'],
+        decoder_target_tokens=hpparams['decoder_target_tokens'],
         batch_size=val_batch_size,
     )
 
@@ -168,11 +172,10 @@ def main(args):
             while True:
                 try:
                     X, y = data_parallel(data=train_ds_iter, num_devices=num_devices)
-                    state, loss = train_step(state, X, y)
                     break  
                 except Exception as e:
-                    LOGGER.info('Token count exceeds token_length, next data!')
-                    
+                    continue
+            state, loss = train_step(state, X, y)
             # Update progress bar and save history of metrics
             train_loss.append(loss)
             pbar.set_description(f"Training -> loss: {loss:.3f}")
