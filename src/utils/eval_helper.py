@@ -4,6 +4,7 @@ from flax import linen as nn
 from models.pali import cider_score, cross_entropy_loss
 
 from .train_helper import hardware_setting
+from models.pali import combine_metrics
 
 
 def load_checkpoint(checkpoints_path: str):

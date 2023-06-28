@@ -28,7 +28,6 @@ def main(args):
     hardware_setting(args)
     # Load the config file
     cfg = yaml.safe_load(open(args.config_path))
-    hpparams = cfg["hyperparams"]
 
     # Init model
     model = PaLI(cfg)
@@ -83,15 +82,11 @@ if __name__ == "__main__":
         default="What is this photo taken looking through?",
         help="Input question",
     )
-    # parser.add_argument(
-    #     "--ckpt", type=str, required=True, help="Path to the checkpoint. (.npy)"
-    # )
-    
     parser.add_argument(
         "--ckpt",
         type=str,
         default="/kaggle/working/PaLI-model/src/checkpoints/20230606-091335/params.npz",
-        help="Path to the checkpoint. (.npy)",
+        help="Path to the checkpoint. (.npz)",
     )
     args = parser.parse_args()
     main(args)

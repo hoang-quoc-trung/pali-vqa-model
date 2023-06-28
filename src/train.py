@@ -1,22 +1,19 @@
+import os
 import argparse
 import datetime
 import logging
-import os
-
 import numpy as np
 import yaml
-from data.make_dataset import getTFDataGenerator
-import jax
-from jax import numpy as jnp
-import flax
 from flax.training import checkpoints
-from flax.core import freeze, unfreeze
+from flax.core import freeze
 from tqdm import tqdm
 import wandb
 from models.pali import PaLI
+from data.make_dataset import getTFDataGenerator
 from utils.train_helper import (
     create_train_state,
-    get_train_val_step,
+    train_step,
+    eval_step,
     hardware_setting,
     init_pali_params,
     load_T5x_pretrained,
@@ -51,25 +48,27 @@ def main(args):
 
     # Load the config file
     cfg = yaml.safe_load(open(args.config_path))
-    cfg["hyperparams"]["save_checkpoint_dir"] = os.path.join(
-        cfg["hyperparams"]["save_checkpoint_dir"],
+    cfg["checkpoints_dir"]["save_state"] = os.path.join(
+        cfg["checkpoints_dir"]["save_state"],
         datetime.datetime.now().strftime("%Y%m%d-%H%M%S"),
     )
-
     hpparams = cfg["hyperparams"]
+    checkpoints_dir = cfg["checkpoints_dir"]
 
     # PaLi model
     LOGGER.info("Init PaLI model parameters")
     model = PaLI(cfg)
     variables = init_pali_params(cfg, model, args.seed)
-    LOGGER.info("Init WanDB")
-    init_wandb(cfg)
     
     # Load pretrained model
     LOGGER.info("Loading ViT pretrained model")
     variables = load_ViT_pretrained(cfg, variables)
     LOGGER.info("Loading Flan-T5 pretrained model")
     variables = load_T5x_pretrained(cfg, variables)
+    
+    # Init wandb
+    LOGGER.info("Init WanDB")
+    init_wandb(cfg)
 
 #--------------------------------------------------------------------------------------------
     # # Create the train state
@@ -79,21 +78,14 @@ def main(args):
     #     variables,
     #     optimizer_name="adam",
     # )
-
-    # # Load state has been trained and continue to train
-    # if os.path.exists(hpparams["load_checkpoint_dir"]):
-    #     LOGGER.info(
-    #         "Restoring checkpoint... from {}".format(hpparams["load_checkpoint_dir"])
-    #     )
-    #     state = checkpoints.restore_checkpoint(hpparams["load_checkpoint_dir"], state)
  #--------------------------------------------------------------------------------------------
  
     # Load params has been trained and continue to train
-    if os.path.exists(hpparams["load_params_dir"]):
+    if os.path.exists(checkpoints_dir["load_params"]):
         LOGGER.info(
-            "Restoring params... from {}".format(hpparams["load_params_dir"])
+            "Restoring params... from {}".format(checkpoints_dir["load_params"])
         )
-        variables = load_checkpoint(hpparams["load_params_dir"])
+        variables = load_checkpoint(checkpoints_dir["load_params"])
         variables = freeze(variables)
         state = create_train_state(
             cfg,
@@ -108,35 +100,48 @@ def main(args):
             model,
             variables,
             optimizer_name="adafactor",
-        )  
-
+        )
+        
+    # Load state has been trained and continue to train
+    if os.path.exists(checkpoints_dir["load_state"]):
+        LOGGER.info(
+            "Restoring checkpoint... from {}".format(checkpoints_dir["load_state"])
+        )
+        state = checkpoints.restore_checkpoint(checkpoints_dir["load_state"], state)
+        
     # Init dataset
     ds_cfg = cfg["dataset"]
     train_ds, _ = getTFDataGenerator(
         data_root=ds_cfg["training"]["data_root"],
         csv_file=ds_cfg["training"]["csv_file"],
         batch_size=hpparams['train_batch_size'],
+        encoder_input_tokens=hpparams['encoder_input_tokens'],
+        decoder_target_tokens=hpparams['decoder_target_tokens'],
+        shuffle=ds_cfg['shuffle_data'],
+        add_eos=ds_cfg['add_eos'],
     )
     val_ds, val_ds_len = getTFDataGenerator(
         data_root=ds_cfg["validation"]["data_root"],
         csv_file=ds_cfg["validation"]["csv_file"],
         batch_size=hpparams['val_batch_size'],
+        encoder_input_tokens=hpparams['encoder_input_tokens'],
+        decoder_target_tokens=hpparams['decoder_target_tokens'],
+        shuffle=ds_cfg['shuffle_data'],
+        add_eos=ds_cfg['add_eos'],
     )
-
-    # Train and evaluate step with jax.jit
-    train_step, eval_step = get_train_val_step(cfg) 
     
     def evaluation(state, val_steps):
         val_cider, val_loss, val_bleu = [], [], []
         with tqdm(total=val_steps) as pbar:
             for _ in range(val_steps):
+                # Token count exceeds token_length, next data
                 while True:
                     try:
                         X, y = next(val_ds_iter)
-                        loss, cider, bleu = eval_step(state, X, y)
                         break  
                     except Exception as e:
-                        LOGGER.info('Token count exceeds token_length, next data!')
+                        continue
+                loss, cider, bleu = eval_step(state, X, y)
                 # Save history of metrics across the entire batch
                 val_cider.append(cider)
                 val_loss.append(loss)
@@ -159,14 +164,14 @@ def main(args):
     with tqdm(total=num_steps) as pbar:
         train_cider, train_bleu, train_loss = [], [], []
         for step in range(1, num_steps + 1):
+             # Token count exceeds token_length, next data
             while True:
                 try:
                     X, y = next(train_ds_iter)
-                    state, loss, cider, bleu = train_step(state, X, y)
                     break  
                 except Exception as e:
-                    LOGGER.info('Token count exceeds token_length, next data!')
-                    
+                    continue
+            state, loss, cider, bleu = train_step(state, X, y)
             # Update progress bar and save history of metrics
             train_cider.append(cider)
             train_loss.append(loss)
@@ -207,20 +212,21 @@ def main(args):
                     val_bleu=val_bleu,
                     val_loss=val_loss,
                 )
-                # # Save the checkpoint with the highest val_cider_score
-                # if val_cider > best_val_cider:
-                #     best_val_cider = val_cider
-                #     del val_cider
-                #     # save_checkpoint_state(cfg, state)
-                #     save_path = save_parameters(cfg, state, step)
-                #     LOGGER.info("Save the best checkpoint in {}".format(save_path))
-                save_path = save_parameters(cfg, state, step)
-                LOGGER.info("Save the best checkpoint in {}".format(save_path))
+                # Save the checkpoint with the highest val_cider_score
+                if val_loss > best_val_loss and hpparams["save_best"]:
+                    best_val_loss = val_loss
+                    # save_checkpoint_state(cfg, state)
+                    save_path = save_parameters(cfg, state, step)
+                    LOGGER.info("Save the best checkpoint in {}".format(save_path))
+                else:
+                    # save_checkpoint_state(cfg, state)
+                    save_path = save_parameters(cfg, state, step)
+                    # LOGGER.info("Save checkpoint in {}".format(save_path))          
 
     # Save the final checkpoint
     # save_checkpoint_state(cfg, state)
-    # save_path = save_parameters(cfg, state, step)
-    # LOGGER.info("Training finished! Save the final checkpoint in {}".format(save_path))
+    save_path = save_parameters(cfg, state, step)
+    LOGGER.info("Training finished! Save the final checkpoint in {}".format(save_path))
     wandb.finish()
 
 if __name__ == "__main__":

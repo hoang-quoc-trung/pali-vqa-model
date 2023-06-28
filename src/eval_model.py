@@ -2,12 +2,11 @@ import argparse
 import logging
 import os
 
-import jax
 import numpy as np
 import yaml
-from data.make_dataset import getTFDataGenerator
 from models.pali import PaLI
 from tqdm import tqdm
+from data.make_dataset import getTFDataGenerator
 from utils.eval_helper import get_eval_step, hardware_setting, load_checkpoint
 
 logging.basicConfig(
@@ -27,6 +26,7 @@ def main(args):
     # Load the config file
     cfg = yaml.safe_load(open(args.config_path))
     hpparams = cfg["hyperparams"]
+    checkpoints_dir = cfg["checkpoints_dir"]
 
     # Init model
     model = PaLI(cfg)
@@ -41,6 +41,10 @@ def main(args):
         data_root=ds_cfg["validation"]["data_root"],
         csv_file=ds_cfg["validation"]["csv_file"],
         batch_size=args.batch_size,
+        shuffle=ds_cfg['shuffle_data'],
+        add_eos=hpparams['add_eos'],
+        encoder_input_tokens=hpparams['encoder_input_tokens'],
+        decoder_target_tokens=hpparams['decoder_target_tokens'],
     )
 
     eval_step_fn = get_eval_step(cfg, model)
@@ -69,7 +73,7 @@ def main(args):
     )
     with open("validation.txt", "a") as f:
         f.write(
-            f"Peform validation on {hpparams.get('load_checkpoint_dir')} with dataset \n{ds_cfg['validation']['data_root']}, {ds_cfg['validation']['csv_file']}\n The length of validation dataset is {val_ds_len}"
+            f"Peform validation on {checkpoints_dir.get('load_params')} with dataset \n{ds_cfg['validation']['data_root']}, {ds_cfg['validation']['csv_file']}\n The length of validation dataset is {val_ds_len}"
         )
         f.write(
             f"Mean validation -> loss: {val_loss:.3f} - cider: {val_cider*100:.2f}% "
@@ -88,7 +92,7 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=int, default=0, help="Random seed")
     parser.add_argument("--batch_size", type=int, default=32, help="Batch size")
     parser.add_argument(
-        "--ckpt", type=str, required=True, help="Path to the checkpoint file. (.npy)"
+        "--ckpt", type=str, required=True, help="Path to the checkpoint file. (.npz)"
     )
     args = parser.parse_args()
     main(args)

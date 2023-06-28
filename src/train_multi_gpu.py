@@ -1,30 +1,29 @@
+import os
 import argparse
 import datetime
 import logging
-import os
-
-import numpy as np
 import wandb
 import yaml
-from data.make_dataset import getTFDataGenerator
 import jax
-from jax import numpy as jnp
 import flax
+import numpy as np
 from flax.training import checkpoints
 from flax.core import freeze, unfreeze
 from models.pali import PaLI
 from tqdm import tqdm
+from data.make_dataset import getTFDataGenerator
 from utils.train_helper import (
     create_train_state,
-    get_train_val_step_multi_gpu,
+    train_step_multi_gpu,
+    eval_step,
     hardware_setting,
     init_pali_params,
     load_T5x_pretrained,
     load_ViT_pretrained,
     data_parallel,
-    save_checkpoint_state_multi_gpu,
     save_history_multi_gpu,
     save_parameters,
+    save_checkpoint_state,
     init_wandb,
 )
 from utils.eval_helper import (
@@ -51,49 +50,34 @@ def main(args):
 
     # Load the config file
     cfg = yaml.safe_load(open(args.config_path))
-    cfg["hyperparams"]["save_checkpoint_dir"] = os.path.join(
-        cfg["hyperparams"]["save_checkpoint_dir"],
+    cfg["checkpoints_dir"]["save_state"] = os.path.join(
+        cfg["checkpoints_dir"]["save_state"],
         datetime.datetime.now().strftime("%Y%m%d-%H%M%S"),
     )
-
     hpparams = cfg["hyperparams"]
+    checkpoints_dir = cfg["checkpoints_dir"]
 
     # PaLi model
     LOGGER.info("Init PaLI model parameters")
     model = PaLI(cfg)
     variables = init_pali_params(cfg, model, args.seed)
-    LOGGER.info("Init WanDB")
-    init_wandb(cfg)
 
     # Load pretrained model
-    LOGGER.info("Loading ViT pretrained model")
-    variables = load_ViT_pretrained(cfg, variables)
+    # LOGGER.info("Loading ViT pretrained model")
+    # variables = load_ViT_pretrained(cfg, variables)
     LOGGER.info("Loading Flan-T5 pretrained model")
     variables = load_T5x_pretrained(cfg, variables)
-
-#--------------------------------------------------------------------------------------------
-    # # Create the train state
-    # state = create_train_state(
-    #     cfg,
-    #     model,
-    #     variables,
-    #     optimizer_name="adam",
-    # )
-
-    # # Load state has been trained and continue to train
-    # if os.path.exists(hpparams["load_checkpoint_dir"]):
-    #     LOGGER.info(
-    #         "Restoring checkpoint... from {}".format(hpparams["load_checkpoint_dir"])
-    #     )
-    #     state = checkpoints.restore_checkpoint(hpparams["load_checkpoint_dir"], state)
- #--------------------------------------------------------------------------------------------
+    
+    # Init wandb
+    LOGGER.info("Init WanDB")
+    init_wandb(cfg)
  
     # Load params has been trained and continue to train
-    if os.path.exists(hpparams["load_params_dir"]):
+    if os.path.exists(checkpoints_dir["load_params"]):
         LOGGER.info(
-            "Restoring params... from {}".format(hpparams["load_params_dir"])
+            "Restoring params... from {}".format(checkpoints_dir["load_params"])
         )
-        variables = load_checkpoint(hpparams["load_params_dir"])
+        variables = load_checkpoint(checkpoints_dir["load_params"])
         variables = freeze(variables)
         state = create_train_state(
             cfg,
@@ -108,7 +92,14 @@ def main(args):
             model,
             variables,
             optimizer_name="adafactor",
-        )  
+        )
+        
+    # Load state has been trained and continue to train
+    if os.path.exists(checkpoints_dir["load_state"]):
+        LOGGER.info(
+            "Restoring checkpoint... from {}".format(checkpoints_dir["load_state"])
+        )
+        state = checkpoints.restore_checkpoint(checkpoints_dir["load_state"], state)
 
     # Set batch_size based on number of devices
     train_batch_size = hpparams['train_batch_size']*num_devices
@@ -123,6 +114,8 @@ def main(args):
         encoder_input_tokens=hpparams['encoder_input_tokens'],
         decoder_target_tokens=hpparams['decoder_target_tokens'],
         batch_size=train_batch_size,
+        shuffle=ds_cfg['shuffle_data'],
+        add_eos=ds_cfg['add_eos'],
     )
     val_ds, val_ds_len = getTFDataGenerator(
         data_root=ds_cfg["validation"]["data_root"],
@@ -130,22 +123,22 @@ def main(args):
         encoder_input_tokens=hpparams['encoder_input_tokens'],
         decoder_target_tokens=hpparams['decoder_target_tokens'],
         batch_size=val_batch_size,
+        shuffle=ds_cfg['shuffle_data'],
+        add_eos=ds_cfg['add_eos'],
     )
-
-    # Train and evaluate step with jax.jit
-    train_step, eval_step = get_train_val_step_multi_gpu(cfg) 
     
     def evaluation(state, val_steps):
         val_cider, val_loss, val_bleu = [], [], []
         with tqdm(total=val_steps) as pbar:
-            for _ in range(val_steps):
+            for _ in range(1, val_steps+1):
+                # Token count exceeds token_length, next data
                 while True:
                     try:
                         X, y = next(val_ds_iter)
-                        loss, cider, bleu = eval_step(state, X, y)
                         break
                     except Exception as e:
-                        LOGGER.info('Token count exceeds token_length, next data!')
+                        continue
+                loss, cider, bleu = eval_step(state, X, y)
                 # Save history of metrics across the entire batch
                 val_cider.append(cider)
                 val_loss.append(loss)
@@ -168,14 +161,16 @@ def main(args):
     with tqdm(total=num_steps) as pbar:
         train_loss = []
         # Train the model
-        for step in range(1, num_steps + 1):
+        for step in range(1, num_steps+1):
+             # Token count exceeds token_length, next data
             while True:
                 try:
                     X, y = data_parallel(data=train_ds_iter, num_devices=num_devices)
                     break  
                 except Exception as e:
                     continue
-            state, loss = train_step(state, X, y)
+            state, loss = train_step_multi_gpu(state, X, y)
+            loss = float(loss[0])
             # Update progress bar and save history of metrics
             train_loss.append(loss)
             pbar.set_description(f"Training -> loss: {loss:.3f}")
@@ -203,20 +198,23 @@ def main(args):
                     val_bleu=val_bleu,
                     val_loss=val_loss,
                 )
-                # # Save the checkpoint with the highest val_cider_score
-                # if val_loss > best_val_loss:
-                #     best_val_loss = val_loss
-                #     save_checkpoint_state_multi_gpu(cfg, state)
-                #     save_path = save_parameters(cfg, flax.jax_utils.unreplicate(state), step)
-                #     LOGGER.info("Save the best checkpoint in {}".format(save_path))
-                save_path = save_parameters(cfg, flax.jax_utils.unreplicate(state), step)
-                LOGGER.info("Save the best checkpoint in {}".format(save_path))          
+                # Save the checkpoint with the highest val_cider_score
+                if val_loss > best_val_loss and hpparams["save_best"]:
+                    best_val_loss = val_loss
+                    # save_checkpoint_state(cfg, flax.jax_utils.unreplicate(state))
+                    save_path = save_parameters(cfg, flax.jax_utils.unreplicate(state), step)
+                    LOGGER.info("Save the best checkpoint in {}".format(save_path))
+                else:
+                    # save_checkpoint_state(cfg, flax.jax_utils.unreplicate(state))
+                    save_path = save_parameters(cfg, flax.jax_utils.unreplicate(state), step)
+                    # LOGGER.info("Save checkpoint in {}".format(save_path))          
 
     # Save the final checkpoint
-    # save_checkpoint_state_multi_gpu(cfg, state)
-    # save_path = save_parameters(cfg, flax.jax_utils.unreplicate(state), step)
-    # LOGGER.info("Training finished! Save the final checkpoint in {}".format(save_path))
+    # save_checkpoint_state(cfg, flax.jax_utils.unreplicate(state))
+    save_path = save_parameters(cfg, flax.jax_utils.unreplicate(state), step)
+    LOGGER.info("Training finished! Save the final checkpoint in {}".format(save_path))
     wandb.finish()
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="PaLI training script")

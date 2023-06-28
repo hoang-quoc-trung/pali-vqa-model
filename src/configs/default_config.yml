@@ -1,5 +1,7 @@
 ---
 dataset:
+  shuffle_data: True
+  add_eos: True
   training:
     data_root: '/kaggle/input/big-vqa-train/coco_textvqa/imgs'
     csv_file: '/kaggle/input/big-vqa-train/train_without_yes_no.csv'
@@ -9,29 +11,36 @@ dataset:
   testing:
     data_root: '...'
     csv_file: '...'
+
 hyperparams:
   image_size: [224, 224]
   encoder_input_tokens: 38
   decoder_input_tokens: 18
   decoder_target_tokens: 18
-  learning_rate: 0.0007
+  learning_rate: 0.001
   grad_norm_clip: 1.0
   train_batch_size: 64
   val_batch_size: 64
+  save_best: False
   num_steps: 50000
-  save_steps: 2000
-  val_steps: 200
-  save_checkpoint_dir: '...'
-  load_checkpoint_dir: '...'
-  load_params_dir: '...'
-  save_params_dir: '/kaggle/working/pali-model/src/checkpoints/params'
-  save_history_dir: '/kaggle/working/pali-model/src/checkpoints/history_log'
+  save_steps: 1000
+  val_steps: 100
+  freeze_vit: False
+
+checkpoints_dir:
+  save_state: '/kaggle/working/pali-model/src/checkpoints/state'
+  save_params: '/kaggle/working/pali-model/src/checkpoints/params'
+  save_history: '/kaggle/working/pali-model/src/checkpoints/history_log'
+  load_state: '...'
+  load_params: '...'
+
 t5:
   gin_file: 'models/t5x/t5x/examples/t5/t5_1_1/base.gin'
   dropout_rate: 0.0
   vit_patches_embs_size: 50
   pretrained_path: '/kaggle/working/pali-model/pretrained/flan_t5_base'
   vocab_size: 32128
+
 vit:
   num_classes: null
   model_name: 'ViT-B_32'
