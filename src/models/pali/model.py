@@ -197,6 +197,7 @@ class PaLI(nn.Module):
         gin.parse_config_file(t5_cfg["gin_file"])
         config = gin.get_bindings("t5x.examples.t5.network.T5Config")
         config["dropout_rate"] = t5_cfg["dropout_rate"]
+        config['dtype'] = jnp.bfloat16
         # Model name will be MergeT5_0
         self.MergeT5_0 = MergeT5(T5Config(**config))
 
