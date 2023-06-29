@@ -64,15 +64,15 @@ def main(args):
     model = PaLI(cfg)
     variables = init_pali_params(cfg, model, args.seed)
 
-    # # Load pretrained model
-    # LOGGER.info("Loading ViT pretrained model")
-    # variables = load_ViT_pretrained(cfg, variables)
-    # LOGGER.info("Loading Flan-T5 pretrained model")
-    # variables = load_T5x_pretrained(cfg, variables)
+    # Load pretrained model
+    LOGGER.info("Loading ViT pretrained model")
+    variables = load_ViT_pretrained(cfg, variables)
+    LOGGER.info("Loading Flan-T5 pretrained model")
+    variables = load_T5x_pretrained(cfg, variables)
     
-    # # Init wandb
-    # LOGGER.info("Init WanDB")
-    # init_wandb(cfg)
+    # Init wandb
+    LOGGER.info("Init WanDB")
+    init_wandb(cfg)
 
     # Create train state
     if os.path.exists(checkpoints_dir["load_params"]):
