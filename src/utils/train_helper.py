@@ -535,6 +535,30 @@ def save_checkpoint_state(
     )
 
 
+def save_optimizer(
+    config: dict,
+    state: train_state.TrainState,
+):
+    """Save optimizer state for training to continue training from the saved state
+
+    Args:
+        config (dict): Configuration file loaded from YAML
+        state (train_state.TrainState): Train state containing the optimizer state
+    """
+    checkpoints_dir = config["checkpoints_dir"]
+    os.makedirs(checkpoints_dir["save_opt"], exist_ok=True)
+    ckpt_tx = {'opt_state': state.opt_state}
+    orbax_checkpointer = orbax.Checkpointer(orbax.PyTreeCheckpointHandler())
+    checkpoints.save_checkpoint_multiprocess(
+        ckpt_dir=checkpoints_dir["save_opt"],
+        target=ckpt_tx,
+        step=state.step,
+        overwrite=True,
+        keep=1,
+        orbax_checkpointer=orbax_checkpointer,
+    )
+
+
 def save_history(
     config: dict,
     step: int,

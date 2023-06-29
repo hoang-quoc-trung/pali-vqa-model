@@ -22,17 +22,19 @@ hyperparams:
   train_batch_size: 64
   val_batch_size: 64
   save_best: False
-  num_steps: 50000
-  save_steps: 1000
+  num_steps: 15000
+  save_steps: 2000
   val_steps: 100
-  freeze_vit: False
+  freeze_vit: True
 
 checkpoints_dir:
-  save_state: '/kaggle/working/pali-model/src/checkpoints/state'
+  save_state: '/kaggle/working/pali-model/src/checkpoints/train_state'
   save_params: '/kaggle/working/pali-model/src/checkpoints/params'
   save_history: '/kaggle/working/pali-model/src/checkpoints/history_log'
-  load_state: '...'
+  save_opt: '/kaggle/working/pali-model/src/checkpoints/optimizer_state'
   load_params: '...'
+  load_opt: '...'
+  load_state: '...'
 
 t5:
   gin_file: 'models/t5x/t5x/examples/t5/t5_1_1/base.gin'

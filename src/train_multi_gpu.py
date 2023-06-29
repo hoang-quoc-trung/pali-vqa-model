@@ -11,6 +11,7 @@ from flax.training import checkpoints
 from flax.core import freeze, unfreeze
 from models.pali import PaLI
 from tqdm import tqdm
+import orbax.checkpoint as orbax
 from data.make_dataset import getTFDataGenerator
 from utils.train_helper import (
     create_train_state,
@@ -24,6 +25,7 @@ from utils.train_helper import (
     save_history_multi_gpu,
     save_parameters,
     save_checkpoint_state,
+    save_optimizer,
     init_wandb,
 )
 from utils.eval_helper import (
@@ -63,20 +65,22 @@ def main(args):
     variables = init_pali_params(cfg, model, args.seed)
 
     # Load pretrained model
-    # LOGGER.info("Loading ViT pretrained model")
-    # variables = load_ViT_pretrained(cfg, variables)
+    LOGGER.info("Loading ViT pretrained model")
+    variables = load_ViT_pretrained(cfg, variables)
     LOGGER.info("Loading Flan-T5 pretrained model")
     variables = load_T5x_pretrained(cfg, variables)
     
     # Init wandb
     LOGGER.info("Init WanDB")
     init_wandb(cfg)
- 
-    # Load params has been trained and continue to train
+
+    # Create train state
     if os.path.exists(checkpoints_dir["load_params"]):
+        # Load params & opt has been trained and continue to train
         LOGGER.info(
-            "Restoring params... from {}".format(checkpoints_dir["load_params"])
+            "Restoring params & opt from {}".format(checkpoints_dir["load_params"])
         )
+        # Load params
         variables = load_checkpoint(checkpoints_dir["load_params"])
         variables = freeze(variables)
         state = create_train_state(
@@ -85,21 +89,28 @@ def main(args):
             variables,
             optimizer_name="adafactor",
         )
+        # Load optimizer
+        state = checkpoints.restore_checkpoint(
+            ckpt_dir=checkpoints_dir["load_opt"], 
+            target=state.opt,
+        )
+        
+    elif os.path.exists(checkpoints_dir["load_state"]):
+        # Load state (model, optimizer, params) has been trained and continue to train
+        LOGGER.info(
+            "Restoring checkpoint (state) from {}".format(checkpoints_dir["load_state"])
+        )
+        state = checkpoints.restore_checkpoint(checkpoints_dir["load_state"], state)
+        
     else:
-        # Create the train state
+        # Create new train state
+        LOGGER.info("Create new train state")
         state = create_train_state(
             cfg,
             model,
             variables,
             optimizer_name="adafactor",
         )
-        
-    # Load state has been trained and continue to train
-    if os.path.exists(checkpoints_dir["load_state"]):
-        LOGGER.info(
-            "Restoring checkpoint... from {}".format(checkpoints_dir["load_state"])
-        )
-        state = checkpoints.restore_checkpoint(checkpoints_dir["load_state"], state)
 
     # Set batch_size based on number of devices
     train_batch_size = hpparams['train_batch_size']*num_devices
@@ -151,7 +162,7 @@ def main(args):
         return np.mean(val_loss), np.mean(val_cider), np.mean(val_bleu)
 
     LOGGER.info("Start training...")
-    """--------------------------------- Start Training Loop ---------------------------------"""
+    """----------------------------------------- Start Training Loop -----------------------------------------"""
     
     num_steps, save_steps = hpparams["num_steps"], hpparams["save_steps"]
     val_steps = val_ds_len if hpparams["val_steps"] is None else hpparams["val_steps"]
@@ -207,11 +218,13 @@ def main(args):
                 else:
                     # save_checkpoint_state(cfg, flax.jax_utils.unreplicate(state))
                     save_path = save_parameters(cfg, flax.jax_utils.unreplicate(state), step)
-                    # LOGGER.info("Save checkpoint in {}".format(save_path))          
+                    LOGGER.info("Save checkpoint in {}".format(save_path))          
 
+    del X, y, train_ds_iter, val_ds_iter
     # Save the final checkpoint
-    # save_checkpoint_state(cfg, flax.jax_utils.unreplicate(state))
     save_path = save_parameters(cfg, flax.jax_utils.unreplicate(state), step)
+    save_optimizer(cfg, flax.jax_utils.unreplicate(state))
+    # save_checkpoint_state(cfg, flax.jax_utils.unreplicate(state))
     LOGGER.info("Training finished! Save the final checkpoint in {}".format(save_path))
     wandb.finish()
 
