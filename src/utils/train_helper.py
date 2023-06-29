@@ -368,8 +368,8 @@ def _train_step(state: train_state.TrainState, X, y):
     def loss_fn(state, params, X, y):
         outputs = state.apply_fn(params, **X)
         logits = outputs["logits"]
-        """ NOTE: When fine-tuning the public T5 checkpoints (trained in T5 MeshTF) the loss normalizing
-                    factor should be set to pretraining batch_size * target_token_length.
+        """ NOTE: When fine-tuning the public T5 checkpoints (trained in T5 MeshTF) the loss 
+            normalizing factor should be set to pretraining batch_size * target_token_length.
         """
         loss_normalizing_factor = y.shape[0] * y.shape[1]
         loss = compute_weighted_cross_entropy(
@@ -394,6 +394,19 @@ def _train_step(state: train_state.TrainState, X, y):
 
 
 def train_step(state: train_state.TrainState, X, y):
+    """ Perform a training step.
+
+    Args:
+        state (train_state.TrainState): The current training state.
+        X: Input data for the training step.
+        y: Target data for the training step.
+
+    Returns:
+        new_state (train_state.TrainState): The updated training state after the step.
+        loss: The calculated loss for the step.
+        cider: The CIDEr score calculated based on the logits and target data.
+        bleu: The BLEU score calculated based on the logits and target data.
+    """
     new_state, loss, logits = _train_step(state, X, y)
     cider, bleu = combine_metrics(logits, y)
     return new_state, loss, cider, bleu
@@ -403,10 +416,8 @@ def train_step(state: train_state.TrainState, X, y):
 def _eval_step(state: train_state.TrainState, X, y):
     outputs = state.apply_fn(state.params, **X)
     logits = outputs["logits"]
-    # loss = cross_entropy_loss(logits, y, vocab_size=VOCAB_SIZE)
-    
-    """ NOTE: When fine-tuning the public T5 checkpoints (trained in T5 MeshTF) the loss normalizing
-                factor should be set to pretraining batch_size * target_token_length.
+    """ NOTE: When fine-tuning the public T5 checkpoints (trained in T5 MeshTF) the loss 
+        normalizing factor should be set to pretraining batch_size * target_token_length.
     """
     loss_normalizing_factor = y.shape[0] * y.shape[1]
     loss = compute_weighted_cross_entropy(
@@ -420,6 +431,18 @@ def _eval_step(state: train_state.TrainState, X, y):
 
 
 def eval_step(state: train_state.TrainState, X, y):
+    """ Perform an evaluation step.
+
+    Args:
+        state (train_state.TrainState): The current training state.
+        X: Input data for the evaluation step.
+        y: Target data for the evaluation step.
+
+    Returns:
+        loss: The calculated loss for the step.
+        cider: The computed CIDEr score.
+        bleu: The computed BLEU score.
+    """
     loss, logits = _eval_step(state, X, y)
     cider, bleu = combine_metrics(logits, y)
     return loss, cider, bleu
@@ -427,11 +450,22 @@ def eval_step(state: train_state.TrainState, X, y):
 
 @partial(jax.pmap, axis_name="num_devices")
 def train_step_multi_gpu(state: train_state.TrainState, X, y):
+    """ Perform a training step on multiple GPUs.
+
+    Args:
+        state (train_state.TrainState): The current training state.
+        X: Input data for the training step.
+        y: Target data for the training step.
+
+    Returns:
+        new_state (train_state.TrainState): The updated training state after the step.
+        loss: The calculated loss for the step.
+    """
     def loss_fn(state, params, X, y):
         outputs = state.apply_fn(params, **X)
         logits = outputs["logits"]
-        """ NOTE: When fine-tuning the public T5 checkpoints (trained in T5 MeshTF) the loss normalizing
-                    factor should be set to pretraining batch_size * target_token_length.
+        """ NOTE: When fine-tuning the public T5 checkpoints (trained in T5 MeshTF) the loss 
+            normalizing factor should be set to pretraining batch_size * target_token_length.
         """
         loss_normalizing_factor = y.shape[0] * y.shape[1]
         loss = compute_weighted_cross_entropy(
@@ -459,10 +493,20 @@ def train_step_multi_gpu(state: train_state.TrainState, X, y):
 
 @partial(jax.pmap, axis_name="num_devices")
 def eval_step_multi_gpu(state: train_state.TrainState, X, y):
+    """ Perform a multi-GPU evaluation step.
+
+    Args:
+        state (train_state.TrainState): The current training state.
+        X: Input data for the evaluation step.
+        y: Target data for the evaluation step.
+
+    Returns:
+        loss: The calculated loss for the step.
+    """
     outputs = state.apply_fn(state.params, **X)
     logits = outputs["logits"]
-    """ NOTE: When fine-tuning the public T5 checkpoints (trained in T5 MeshTF) the loss normalizing
-                factor should be set to pretraining batch_size * target_token_length.
+    """ NOTE: When fine-tuning the public T5 checkpoints (trained in T5 MeshTF) the loss 
+        normalizing factor should be set to pretraining batch_size * target_token_length.
     """
     loss_normalizing_factor = y.shape[0] * y.shape[1]
     loss = compute_weighted_cross_entropy(
