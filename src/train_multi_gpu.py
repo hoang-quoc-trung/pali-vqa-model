@@ -64,15 +64,15 @@ def main(args):
     model = PaLI(cfg)
     variables = init_pali_params(cfg, model, args.seed)
 
-    # Load pretrained model
-    LOGGER.info("Loading ViT pretrained model")
-    variables = load_ViT_pretrained(cfg, variables)
-    LOGGER.info("Loading Flan-T5 pretrained model")
-    variables = load_T5x_pretrained(cfg, variables)
+    # # Load pretrained model
+    # LOGGER.info("Loading ViT pretrained model")
+    # variables = load_ViT_pretrained(cfg, variables)
+    # LOGGER.info("Loading Flan-T5 pretrained model")
+    # variables = load_T5x_pretrained(cfg, variables)
     
-    # Init wandb
-    LOGGER.info("Init WanDB")
-    init_wandb(cfg)
+    # # Init wandb
+    # LOGGER.info("Init WanDB")
+    # init_wandb(cfg)
 
     # Create train state
     if os.path.exists(checkpoints_dir["load_params"]):
@@ -145,11 +145,11 @@ def main(args):
                 # Token count exceeds token_length, next data
                 while True:
                     try:
-                        X, y = next(val_ds_iter)
+                        batch, decoder_loss_weights = next(val_ds_iter)
                         break
                     except Exception as e:
                         continue
-                loss, cider, bleu = eval_step(state, X, y)
+                loss, cider, bleu = eval_step(state, batch, decoder_loss_weights)
                 # Save history of metrics across the entire batch
                 val_cider.append(cider)
                 val_loss.append(loss)
@@ -176,11 +176,14 @@ def main(args):
              # Token count exceeds token_length, next data
             while True:
                 try:
-                    X, y = data_parallel(data=train_ds_iter, num_devices=num_devices)
+                    batch, decoder_loss_weights = data_parallel(
+                        data=train_ds_iter, 
+                        num_devices=num_devices
+                    )
                     break  
                 except Exception as e:
                     continue
-            state, loss = train_step_multi_gpu(state, X, y)
+            state, loss = train_step_multi_gpu(state, batch, decoder_loss_weights)
             loss = float(loss[0])
             # Update progress bar and save history of metrics
             train_loss.append(loss)
@@ -220,12 +223,12 @@ def main(args):
                     save_path = save_parameters(cfg, flax.jax_utils.unreplicate(state), step)
                     LOGGER.info("Save checkpoint in {}".format(save_path))          
 
-    del X, y, train_ds_iter, val_ds_iter
+    del batch, decoder_loss_weights, train_ds_iter, val_ds_iter
     # Save the final checkpoint
-    save_path = save_parameters(cfg, flax.jax_utils.unreplicate(state), step)
+    # save_path = save_parameters(cfg, flax.jax_utils.unreplicate(state), step)
     save_optimizer(cfg, flax.jax_utils.unreplicate(state))
     # save_checkpoint_state(cfg, flax.jax_utils.unreplicate(state))
-    LOGGER.info("Training finished! Save the final checkpoint in {}".format(save_path))
+    # LOGGER.info("Training finished! Save the final checkpoint in {}".format(save_path))
     wandb.finish()
 
 

@@ -137,11 +137,11 @@ def main(args):
                 # Token count exceeds token_length, next data
                 while True:
                     try:
-                        X, y = next(val_ds_iter)
+                        batch, decoder_loss_weights = next(val_ds_iter)
                         break  
                     except Exception as e:
                         continue
-                loss, cider, bleu = eval_step(state, X, y)
+                loss, cider, bleu = eval_step(state, batch, decoder_loss_weights)
                 # Save history of metrics across the entire batch
                 val_cider.append(cider)
                 val_loss.append(loss)
@@ -167,11 +167,11 @@ def main(args):
              # Token count exceeds token_length, next data
             while True:
                 try:
-                    X, y = next(train_ds_iter)
+                    batch, decoder_loss_weights = next(train_ds_iter)
                     break  
                 except Exception as e:
                     continue
-            state, loss, cider, bleu = train_step(state, X, y)
+            state, loss, cider, bleu = train_step(state, batch, decoder_loss_weights)
             # Update progress bar and save history of metrics
             train_cider.append(cider)
             train_loss.append(loss)
@@ -213,8 +213,8 @@ def main(args):
                     val_loss=val_loss,
                 )
                 # Save the checkpoint with the highest val_cider_score
-                if val_loss > best_val_loss and hpparams["save_best"]:
-                    best_val_loss = val_loss
+                if val_cider > best_val_cider and hpparams["save_best"]:
+                    best_val_cider = val_cider
                     # save_checkpoint_state(cfg, state)
                     save_path = save_parameters(cfg, state, step)
                     LOGGER.info("Save the best checkpoint in {}".format(save_path))
@@ -228,6 +228,7 @@ def main(args):
     save_path = save_parameters(cfg, state, step)
     LOGGER.info("Training finished! Save the final checkpoint in {}".format(save_path))
     wandb.finish()
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="PaLI training script")

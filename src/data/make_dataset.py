@@ -266,7 +266,7 @@ def getTFDataGenerator(
             "encoder_input_tokens": inputs_data["encoder_input_tokens"],
             "decoder_input_tokens": inputs_data["decoder_input_tokens"],
             "decoder_target_tokens": inputs_data["decoder_target_tokens"],
-        }, inputs_data["decoder_target_tokens"]
+        },  inputs_data["decoder_loss_weights"]
 
     dataset = dataset.map(_return_dataset, num_parallel_calls=tf.data.AUTOTUNE)
 

@@ -1,3 +1,4 @@
+from typing import Optional
 import csv
 import os
 import subprocess as sp
@@ -20,6 +21,8 @@ from models.pali import (
     combine_metrics,
     cross_entropy_loss,
     compute_weighted_cross_entropy,
+    get_loss_normalizing_factor_and_weights,
+    SpecialLossNormalizingFactor,
     get_t5x_pretrained,
     get_vit_pretrained,
 )
@@ -64,7 +67,7 @@ def init_pali_params(
     model: nn.Module,
     seed: int = 42,
 ):
-    """Initialize parameters for the model
+    """ Initialize parameters for the model
 
     Args:
         cfg (dict): config file load from yaml
@@ -102,7 +105,7 @@ def load_ViT_pretrained(
     config: dict,
     variables: dict,
 ):
-    """Load pretrained ViT parameters
+    """ Load pretrained ViT parameters
 
     Args:
         config (dict): config file load from yaml
@@ -124,7 +127,7 @@ def load_T5x_pretrained(
     config: dict,
     variables: dict,
 ):
-    """Load pretrained T5x parameters
+    """ Load pretrained T5x parameters
 
     Args:
         config (dict): config file load from yaml
@@ -148,7 +151,7 @@ def create_train_state(
     variables: dict,
     optimizer_name: str = "adafactor",
 ):
-    """Create train state for Pali model with ViT parameters is frozen
+    """ Create train state for Pali model with ViT parameters is frozen
 
     Args:
         config (dict): config file load from yaml
@@ -364,22 +367,27 @@ def create_train_state(
 
 
 @jax.jit  # Define the training, evaluating step with @jax.jit for faster training
-def _train_step(state: train_state.TrainState, X, y):
-    def loss_fn(state, params, X, y):
-        outputs = state.apply_fn(params, **X)
-        logits = outputs["logits"]
+def _train_step(state: train_state.TrainState, batch, decoder_loss_weights):
+    def loss_fn(state, params, batch, decoder_loss_weights):
+        outputs = state.apply_fn(params, **batch)
         """ NOTE: When fine-tuning the public T5 checkpoints (trained in T5 MeshTF) the loss 
             normalizing factor should be set to pretraining batch_size * target_token_length.
         """
-        loss_normalizing_factor = y.shape[0] * y.shape[1]
-        loss = compute_weighted_cross_entropy(
-            logits=logits,
-            targets=y,
-            label_smoothing=0.0,
+        # loss_normalizing_factor = batch['decoder_target_tokens'].shape[0] * batch['decoder_target_tokens'].shape[1]
+        (loss_normalizing_factor, weights) = get_loss_normalizing_factor_and_weights(
+            loss_normalizing_factor=SpecialLossNormalizingFactor.NUM_REAL_TARGET_TOKENS,
+            decoder_loss_weights=decoder_loss_weights,
+            batch=batch,
+        )
+        loss, z_loss, weight_sum = compute_weighted_cross_entropy(
+            logits=outputs["logits"],
+            targets=batch['decoder_target_tokens'],
+            weights=weights,
+            label_smoothing=0.1,
             z_loss=0.0001,
             loss_normalizing_factor=loss_normalizing_factor,
-        )[0]
-        return loss, logits
+        )
+        return loss, outputs["logits"]
     # Create Gradient Function by passing in the function
     grad_fn = jax.value_and_grad(
         loss_fn,
@@ -387,19 +395,19 @@ def _train_step(state: train_state.TrainState, X, y):
         has_aux=True,  # Return loss and logits for calculating accuracy
     )
     # Calculate the loss and gradients
-    (loss, logits), grads = grad_fn(state, state.params, X, y)
+    (loss, logits), grads = grad_fn(state, state.params, batch, decoder_loss_weights)
     # Update Parameters
     new_state = state.apply_gradients(grads=grads)
     return new_state, loss, logits
 
 
-def train_step(state: train_state.TrainState, X, y):
+def train_step(state: train_state.TrainState, batch, decoder_loss_weights):
     """ Perform a training step.
 
     Args:
         state (train_state.TrainState): The current training state.
-        X: Input data for the training step.
-        y: Target data for the training step.
+        batch: Data for the training step.
+        decoder_loss_weights: Loss is computed for all but the padding positions.
 
     Returns:
         new_state (train_state.TrainState): The updated training state after the step.
@@ -407,75 +415,77 @@ def train_step(state: train_state.TrainState, X, y):
         cider: The CIDEr score calculated based on the logits and target data.
         bleu: The BLEU score calculated based on the logits and target data.
     """
-    new_state, loss, logits = _train_step(state, X, y)
-    cider, bleu = combine_metrics(logits, y)
+    new_state, loss, logits = _train_step(state, batch, decoder_loss_weights)
+    cider, bleu = combine_metrics(logits, batch['decoder_target_tokens'])
     return new_state, loss, cider, bleu
 
 
 @jax.jit  # Define the training, evaluating step with @jax.jit for faster training
-def _eval_step(state: train_state.TrainState, X, y):
-    outputs = state.apply_fn(state.params, **X)
-    logits = outputs["logits"]
-    """ NOTE: When fine-tuning the public T5 checkpoints (trained in T5 MeshTF) the loss 
-        normalizing factor should be set to pretraining batch_size * target_token_length.
-    """
-    loss_normalizing_factor = y.shape[0] * y.shape[1]
-    loss = compute_weighted_cross_entropy(
-        logits=logits,
-        targets=y,
+def _eval_step(state: train_state.TrainState, batch, decoder_loss_weights):
+    outputs = state.apply_fn(state.params, **batch)
+    (loss_normalizing_factor, weights) = get_loss_normalizing_factor_and_weights(
+        loss_normalizing_factor=SpecialLossNormalizingFactor.NUM_REAL_TARGET_TOKENS,
+        loss_weights=decoder_loss_weights,
+        batch=batch,
+    )
+    loss, z_loss, weight_sum = compute_weighted_cross_entropy(
+        logits=outputs["logits"],
+        targets=batch['decoder_target_tokens'],
+        weights=weights,
         label_smoothing=0.1,
         z_loss=0.0001,
         loss_normalizing_factor=loss_normalizing_factor,
-    )[0]
-    return loss, logits
+    )
+    return loss, outputs["logits"]
 
 
-def eval_step(state: train_state.TrainState, X, y):
+def eval_step(state: train_state.TrainState, batch, decoder_loss_weights):
     """ Perform an evaluation step.
 
     Args:
         state (train_state.TrainState): The current training state.
-        X: Input data for the evaluation step.
-        y: Target data for the evaluation step.
+        batch: Data for the training step.
+        decoder_loss_weights: Loss is computed for all but the padding positions.
 
     Returns:
         loss: The calculated loss for the step.
         cider: The computed CIDEr score.
         bleu: The computed BLEU score.
     """
-    loss, logits = _eval_step(state, X, y)
-    cider, bleu = combine_metrics(logits, y)
+    loss, logits = _eval_step(state, batch, decoder_loss_weights)
+    cider, bleu = combine_metrics(logits, batch['decoder_target_tokens'])
     return loss, cider, bleu
 
 
 @partial(jax.pmap, axis_name="num_devices")
-def train_step_multi_gpu(state: train_state.TrainState, X, y):
+def train_step_multi_gpu(state: train_state.TrainState, batch, decoder_loss_weights):
     """ Perform a training step on multiple GPUs.
 
     Args:
         state (train_state.TrainState): The current training state.
-        X: Input data for the training step.
-        y: Target data for the training step.
+        batch:  Data for the training step.
+        decoder_loss_weights: Loss is computed for all but the padding positions.
 
     Returns:
         new_state (train_state.TrainState): The updated training state after the step.
         loss: The calculated loss for the step.
     """
-    def loss_fn(state, params, X, y):
-        outputs = state.apply_fn(params, **X)
-        logits = outputs["logits"]
-        """ NOTE: When fine-tuning the public T5 checkpoints (trained in T5 MeshTF) the loss 
-            normalizing factor should be set to pretraining batch_size * target_token_length.
-        """
-        loss_normalizing_factor = y.shape[0] * y.shape[1]
-        loss = compute_weighted_cross_entropy(
-            logits=logits,
-            targets=y,
+    def loss_fn(state, params, batch, decoder_loss_weights):
+        outputs = state.apply_fn(params, **batch)
+        (loss_normalizing_factor, weights) = get_loss_normalizing_factor_and_weights(
+            loss_normalizing_factor=SpecialLossNormalizingFactor.NUM_REAL_TARGET_TOKENS,
+            loss_weights=decoder_loss_weights,
+            batch=batch,
+        )
+        loss, z_loss, weight_sum = compute_weighted_cross_entropy(
+            logits=outputs["logits"],
+            targets=batch['decoder_target_tokens'],
+            weights=weights,
             label_smoothing=0.1,
             z_loss=0.0001,
             loss_normalizing_factor=loss_normalizing_factor,
-        )[0]
-        return loss, logits
+        )
+        return loss, outputs["logits"]
     # Create Gradient Function by passing in the function
     grad_fn = jax.value_and_grad(
         loss_fn,
@@ -483,7 +493,7 @@ def train_step_multi_gpu(state: train_state.TrainState, X, y):
         has_aux=True,  # Return loss and logits for calculating accuracy
     )
     # Calculate the loss and gradients
-    (loss, logits), grads = grad_fn(state, state.params, X, y)
+    (loss, logits), grads = grad_fn(state, state.params, batch, decoder_loss_weights)
     grads = jax.lax.pmean(grads, axis_name="num_devices")
     loss = jax.lax.pmean(loss, axis_name="num_devices")
     # Update Parameters
@@ -492,27 +502,28 @@ def train_step_multi_gpu(state: train_state.TrainState, X, y):
 
 
 @partial(jax.pmap, axis_name="num_devices")
-def eval_step_multi_gpu(state: train_state.TrainState, X, y):
+def eval_step_multi_gpu(state: train_state.TrainState, batch, decoder_loss_weights):
     """ Perform a multi-GPU evaluation step.
 
     Args:
         state (train_state.TrainState): The current training state.
-        X: Input data for the evaluation step.
-        y: Target data for the evaluation step.
+        batch: Data for the training step.
+        decoder_loss_weights: Loss is computed for all but the padding positions.
 
     Returns:
         loss: The calculated loss for the step.
     """
-    outputs = state.apply_fn(state.params, **X)
-    logits = outputs["logits"]
-    """ NOTE: When fine-tuning the public T5 checkpoints (trained in T5 MeshTF) the loss 
-        normalizing factor should be set to pretraining batch_size * target_token_length.
-    """
-    loss_normalizing_factor = y.shape[0] * y.shape[1]
+    outputs = state.apply_fn(state.params, **batch)
+    (loss_normalizing_factor, weights) = get_loss_normalizing_factor_and_weights(
+        loss_normalizing_factor=SpecialLossNormalizingFactor.NUM_REAL_TARGET_TOKENS,
+        loss_weights=decoder_loss_weights,
+        batch=batch,
+    )
     loss = compute_weighted_cross_entropy(
-        logits=logits,
-        targets=y,
-        label_smoothing=0.0,
+        logits=outputs["logits"],
+        targets=batch['decoder_target_tokens'],
+        weights=weights,
+        label_smoothing=0.1,
         z_loss=0.0001,
         loss_normalizing_factor=loss_normalizing_factor,
     )[0]
@@ -524,42 +535,42 @@ def data_parallel(
     data,
     num_devices: Optional[int] = None,
 ):
-    """Reshape images from [num_devices * batch_size, height, width, channels]
-            to [num_devices, batch_size, height, width, img_channels]
+    """ Reshape data for multiple GPUs
 
     Args:
         data: Iterator providing the data for training or evaluation.
         num_devices (int, optional): Number of devices to consider when reshaping the data. Defaults to None.
 
     Returns:
-        Tuple: A tuple containing the preprocessed input data `X` and the corresponding target data `y`.
-
+        batch: Data for training
+        decoder_loss_weights: Loss is computed for all but the padding positions.
     """
-    X, y = next(data)
-    X = {
-        "images": X["images"].reshape(
-            [num_devices, -1] + list(X["images"].shape[1:])
+    batch, decoder_loss_weights = next(data)
+    batch = {
+        "images": batch["images"].reshape(
+            [num_devices, -1] + list(batch["images"].shape[1:])
         ),
-        "encoder_input_tokens": X["encoder_input_tokens"].reshape(
-            [num_devices, -1] + list(X["encoder_input_tokens"].shape[1:])
+        "encoder_input_tokens": batch["encoder_input_tokens"].reshape(
+            [num_devices, -1] + list(batch["encoder_input_tokens"].shape[1:])
         ),
-        "decoder_input_tokens": X["decoder_input_tokens"].reshape(
-            [num_devices, -1] + list(X["decoder_input_tokens"].shape[1:])
+        "decoder_input_tokens": batch["decoder_input_tokens"].reshape(
+            [num_devices, -1] + list(batch["decoder_input_tokens"].shape[1:])
         ),
-        "decoder_target_tokens": X["decoder_target_tokens"].reshape(
-            [num_devices, -1] + list(X["decoder_target_tokens"].shape[1:])
+        "decoder_target_tokens": batch["decoder_target_tokens"].reshape(
+            [num_devices, -1] + list(batch["decoder_target_tokens"].shape[1:])
         ),
     }
-    y = y.reshape([num_devices, -1] + list(y.shape[1:]))
-        
-    return X, y
+    decoder_loss_weights = decoder_loss_weights.reshape(
+        [num_devices, -1] + list(decoder_loss_weights.shape[1:])
+    )
+    return batch, decoder_loss_weights
 
 
 def save_checkpoint_state(
     config: dict,
     state: train_state.TrainState,
 ):
-    """Save training state and parameters for Pali model
+    """ Save training state and parameters for Pali model
 
     Args:
         config (dict): config file load from yaml
@@ -583,7 +594,7 @@ def save_optimizer(
     config: dict,
     state: train_state.TrainState,
 ):
-    """Save optimizer state for training to continue training from the saved state
+    """ Save optimizer state for training to continue training from the saved state
 
     Args:
         config (dict): Configuration file loaded from YAML
@@ -614,7 +625,7 @@ def save_history(
     train_bleu: float,
     file_name="history.csv",
 ):
-    """Save training history to csv file
+    """ Save training history to csv file
 
     Args:
         config (dict): config file load from yaml
@@ -660,7 +671,7 @@ def save_history_multi_gpu(
     val_bleu: float,
     file_name="history_multi_gpu.csv",
 ):
-    """Save training history of multi-GPU to a CSV file
+    """ Save training history of multi-GPU to a CSV file
 
     Args:
         config (dict): config file load from yaml
@@ -698,7 +709,7 @@ def save_parameters(
     state: train_state.TrainState,
     step: int,
 ):
-    """Save only the parameters for the model.
+    """ Save only the parameters for the model.
 
     Args:
         config (dict): config file load from yaml
