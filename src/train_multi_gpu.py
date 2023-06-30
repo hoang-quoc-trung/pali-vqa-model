@@ -87,7 +87,7 @@ def main(args):
             cfg,
             model,
             variables,
-            optimizer_name="adafactor",
+            optimizer_name=hpparams["optimizer_name"],
         )
         # Load optimizer
         if os.path.exists(checkpoints_dir["load_opt"]):
@@ -110,13 +110,13 @@ def main(args):
             cfg,
             model,
             variables,
-            optimizer_name="adafactor",
+            optimizer_name=hpparams["optimizer_name"],
         )
-
+    state = flax.jax_utils.replicate(state)
+    
     # Set batch_size based on number of devices
     train_batch_size = hpparams['train_batch_size']*num_devices
     val_batch_size = hpparams['val_batch_size']*num_devices
-    state = flax.jax_utils.replicate(state)
     
     # Init dataset
     ds_cfg = cfg["dataset"]
@@ -125,18 +125,18 @@ def main(args):
         csv_file=ds_cfg["training"]["csv_file"],
         encoder_input_tokens=hpparams['encoder_input_tokens'],
         decoder_target_tokens=hpparams['decoder_target_tokens'],
-        batch_size=train_batch_size,
         shuffle=ds_cfg['shuffle_data'],
         add_eos=ds_cfg['add_eos'],
+        batch_size=train_batch_size,
     )
     val_ds, val_ds_len = getTFDataGenerator(
         data_root=ds_cfg["validation"]["data_root"],
         csv_file=ds_cfg["validation"]["csv_file"],
         encoder_input_tokens=hpparams['encoder_input_tokens'],
         decoder_target_tokens=hpparams['decoder_target_tokens'],
-        batch_size=val_batch_size,
         shuffle=ds_cfg['shuffle_data'],
         add_eos=ds_cfg['add_eos'],
+        batch_size=val_batch_size,
     )
     
     def evaluation(state, val_steps):
@@ -224,9 +224,7 @@ def main(args):
                     save_path = save_parameters(cfg, flax.jax_utils.unreplicate(state), step)
                     LOGGER.info("Save checkpoint in {}".format(save_path))          
 
-    del batch, decoder_loss_weights, train_ds_iter, val_ds_iter
     # Save the final checkpoint
-    save_optimizer(cfg, flax.jax_utils.unreplicate(state))
     # save_path = save_parameters(cfg, flax.jax_utils.unreplicate(state), step)
     # save_checkpoint_state(cfg, flax.jax_utils.unreplicate(state))
     # LOGGER.info("Training finished! Save the final checkpoint in {}".format(save_path))

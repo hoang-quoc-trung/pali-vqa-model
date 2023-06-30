@@ -185,7 +185,7 @@ class Encoder(nn.Module):
                 posemb_init=nn.initializers.normal(stddev=0.02),  # from BERT.
                 name='posembed_input'
             )(x)
-        x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=not train)
+            x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=not train)
 
         # Input Encoder
         for lyr in range(self.num_layers):
@@ -230,25 +230,25 @@ class VisionTransformer(nn.Module):
                 use_bias=False,
                 name='conv_root'
             )(x)
-        x = nn.GroupNorm(name='gn_root')(x)
-        x = nn.relu(x)
-        x = nn.max_pool(x, window_shape=(3, 3), strides=(2, 2), padding='SAME')
+            x = nn.GroupNorm(name='gn_root')(x)
+            x = nn.relu(x)
+            x = nn.max_pool(x, window_shape=(3, 3), strides=(2, 2), padding='SAME')
 
-        # ResNet stages.
-        if self.resnet.num_layers:
-            x = models_resnet.ResNetStage(
-                block_size=self.resnet.num_layers[0],
-                nout=width,
-                first_stride=(1, 1),
-                name='block1'
-            )(x)
-            for i, block_size in enumerate(self.resnet.num_layers[1:], 1):
+            # ResNet stages.
+            if self.resnet.num_layers:
                 x = models_resnet.ResNetStage(
-                    block_size=block_size,
-                    nout=width * 2**i,
-                    first_stride=(2, 2),
-                    name=f'block{i + 1}'
+                    block_size=self.resnet.num_layers[0],
+                    nout=width,
+                    first_stride=(1, 1),
+                    name='block1'
                 )(x)
+                for i, block_size in enumerate(self.resnet.num_layers[1:], 1):
+                    x = models_resnet.ResNetStage(
+                        block_size=block_size,
+                        nout=width * 2**i,
+                        first_stride=(2, 2),
+                        name=f'block{i + 1}'
+                    )(x)
 
         n, h, w, c = x.shape
 
@@ -268,13 +268,13 @@ class VisionTransformer(nn.Module):
             n, h, w, c = x.shape
             x = jnp.reshape(x, [n, h * w, c])
 
-        # If we want to add a class token, add it here.
-        if self.classifier in ['token', 'token_unpooled']:
-            cls = self.param('cls', nn.initializers.zeros, (1, 1, c))
-            cls = jnp.tile(cls, [n, 1, 1])
-            x = jnp.concatenate([cls, x], axis=1)
+            # If we want to add a class token, add it here.
+            if self.classifier in ['token', 'token_unpooled']:
+                cls = self.param('cls', nn.initializers.zeros, (1, 1, c))
+                cls = jnp.tile(cls, [n, 1, 1])
+                x = jnp.concatenate([cls, x], axis=1)
 
-        x = self.encoder(name='Transformer', **self.transformer)(x, train=train)
+            x = self.encoder(name='Transformer', **self.transformer)(x, train=train)
 
         if self.classifier == 'token':
             x = x[:, 0]

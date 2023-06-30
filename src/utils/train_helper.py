@@ -156,10 +156,7 @@ def create_train_state(
         config (dict): config file load from yaml
         model (nn.Module): Pali model
         variables (dict): a dictionary of parameters for the Pali model
-        optimizer_name (str, optional): Optimizer name used for training. Defaults to "adam".
-
-    Raises:
-        ValueError: Optimizer name is not supported, currently only support "adam" and "sgd"
+        optimizer_name (str, optional): Optimizer name used for training. Defaults to "adafactor".
 
     Returns:
         flax.training.train_state.TrainState: train state for Pali model
@@ -197,9 +194,7 @@ def create_train_state(
     # Simple switch case for optimizer
     def get_optimizer(optimizer_name):
         optim = {
-            "sgd": optax.sgd, 
             "lion": optax.lion,
-            "adam": optax.adam,
             "adamw": optax.adamw,
             "adafactor": optax.adafactor,
         }
@@ -244,7 +239,7 @@ def create_train_state(
                 },
                 trainable_mask,
             ),
-            optax.clip_by_global_norm(hpparams["grad_norm_clip"])
+            optax.clip_by_global_norm(hpparams["clipping_threshold"])
         )
 
     elif optimizer_name == 'adafactor':
@@ -266,7 +261,7 @@ def create_train_state(
                         eps=1e-30,
                         decay_offset=0,
                         momentum=0.9,
-                        clipping_threshold=hpparams["grad_norm_clip"],
+                        clipping_threshold=hpparams["clipping_threshold"],
                     ),
                     'zero': zero_grads(),
                 },
@@ -279,7 +274,7 @@ def create_train_state(
                 eps=1e-30,
                 decay_offset=0,
                 momentum=0.9,
-                clipping_threshold=hpparams["grad_norm_clip"],
+                clipping_threshold=hpparams["clipping_threshold"],
             )
         
     elif optimizer_name == 'adamw':
@@ -307,58 +302,7 @@ def create_train_state(
                 },
                 trainable_mask,
             ),
-            optax.clip_by_global_norm(hpparams["grad_norm_clip"])
-        )
-        
-    elif optimizer_name == 'sgd':
-        """ A canonical Stochastic Gradient Descent optimizer.
-        
-        This implements stochastic gradient descent. It also includes support for
-        momentum, and nesterov acceleration, as these are standard practice when
-        using stochastic gradient descent to train deep neural networks.
-
-        References:
-            Sutskever et al, 2013: http://proceedings.mlr.press/v28/sutskever13.pdf
-        """
-        tx = optax.chain(
-            optax.multi_transform(
-                {
-                    'sgd': get_optimizer(optimizer_name)(
-                        learning_rate=hpparams["learning_rate"],
-                        momentum=None,
-                        nesterov=False,
-                    ),
-                    'zero': zero_grads(),
-                },
-                trainable_mask,
-            ),
-            optax.clip_by_global_norm(hpparams["grad_norm_clip"])
-        )
-        
-    elif optimizer_name == 'adam':
-        """ The classic Adam optimizer.
-        
-        Adam is an SGD variant with gradient scaling adaptation. The scaling
-        used for each parameter is computed from estimates of first and second-order
-        moments of the gradients (using suitable exponential moving averages).
-        
-        References:
-            Kingma et al, 2014: https://arxiv.org/abs/1412.6980
-        """
-        tx = optax.chain(
-            optax.multi_transform(
-                {
-                    'adam': get_optimizer(optimizer_name)(
-                        learning_rate=hpparams["learning_rate"],
-                        b1=0.9,
-                        b2=0.999,
-                        eps=1e-8
-                    ),
-                    'zero': zero_grads(),
-                },
-                trainable_mask,
-            ),
-            optax.clip_by_global_norm(hpparams["grad_norm_clip"])
+            optax.clip_by_global_norm(hpparams["clipping_threshold"])
         )
 
     # Create the train state
@@ -755,8 +699,9 @@ def init_wandb(
             "save_steps": hpparams["save_steps"],
             "train_batch_size": hpparams["train_batch_size"],
             "val_batch_size": hpparams["val_batch_size"],
+            "optimizer_name": hpparams["optimizer_name"],
             "learning_rate": hpparams["learning_rate"],
-            "grad_norm_clip": hpparams["grad_norm_clip"],
+            "clipping_threshold": hpparams["clipping_threshold"],
             "freeze_vit": hpparams["freeze_vit"]
         }
     )

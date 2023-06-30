@@ -38,7 +38,7 @@ def get_eval_step(model: nn.Module):
     # Enable jit for faster evaluation
     @jax.jit
     def val_step(params, batch, decoder_loss_weights):
-        outputs = model.apply(params, **batch, decoder_loss_weights)
+        outputs = model.apply(params, **batch)
         (loss_normalizing_factor, weights) = get_loss_normalizing_factor_and_weights(
             loss_normalizing_factor=SpecialLossNormalizingFactor.NUM_REAL_TARGET_TOKENS,
             loss_weights=decoder_loss_weights,

@@ -4,7 +4,7 @@ dataset:
   add_eos: True
   training:
     data_root: '/kaggle/input/big-vqa-train/coco_textvqa/imgs'
-    csv_file: '/kaggle/input/big-vqa-train/train_without_yes_no.csv'
+    csv_file: '/kaggle/input/big-vqa-train/train.csv'
   validation:
     data_root: '/kaggle/input/coco-vqa-val/val/val2014'
     csv_file: '/kaggle/input/coco-vqa-val/val/val.csv'
@@ -17,14 +17,15 @@ hyperparams:
   encoder_input_tokens: 38
   decoder_input_tokens: 18
   decoder_target_tokens: 18
+  optimizer_name: adafactor
   learning_rate: 0.001
-  grad_norm_clip: 1.0
+  clipping_threshold: 1.0
   train_batch_size: 64
   val_batch_size: 64
   save_best: False
-  num_steps: 15000
+  num_steps: 16000
   save_steps: 2000
-  val_steps: 100
+  val_steps: 200
   freeze_vit: True
 
 checkpoints_dir:
@@ -47,4 +48,4 @@ vit:
   num_classes: null
   model_name: 'ViT-B_32'
   classifier: "token_unpooled"
-  pretrained_path: '/kaggle/working/pali-model/pretrained/ViT-B_32.npz' # '../pretrained/ViT-B_32.npz'
+  pretrained_path: '../pretrained/ViT-B_32.npz'
