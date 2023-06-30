@@ -19,7 +19,6 @@ from models.pali import (
     cider_score,
     bleu_score,
     combine_metrics,
-    cross_entropy_loss,
     compute_weighted_cross_entropy,
     get_loss_normalizing_factor_and_weights,
     SpecialLossNormalizingFactor,
@@ -470,6 +469,7 @@ def train_step_multi_gpu(state: train_state.TrainState, batch, decoder_loss_weig
         new_state (train_state.TrainState): The updated training state after the step.
         loss: The calculated loss for the step.
     """
+    @jax.jit
     def loss_fn(state, params, batch, decoder_loss_weights):
         outputs = state.apply_fn(params, **batch)
         (loss_normalizing_factor, weights) = get_loss_normalizing_factor_and_weights(
@@ -519,14 +519,14 @@ def eval_step_multi_gpu(state: train_state.TrainState, batch, decoder_loss_weigh
         loss_weights=decoder_loss_weights,
         batch=batch,
     )
-    loss = compute_weighted_cross_entropy(
+    loss, z_loss, weight_sum = compute_weighted_cross_entropy(
         logits=outputs["logits"],
         targets=batch['decoder_target_tokens'],
         weights=weights,
         label_smoothing=0.1,
         z_loss=0.0001,
         loss_normalizing_factor=loss_normalizing_factor,
-    )[0]
+    )
     loss = jax.lax.pmean(loss, axis_name="num_devices")
     return loss
 

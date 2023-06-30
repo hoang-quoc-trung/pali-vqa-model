@@ -90,10 +90,11 @@ def main(args):
             optimizer_name="adafactor",
         )
         # Load optimizer
-        state = checkpoints.restore_checkpoint(
-            ckpt_dir=checkpoints_dir["load_opt"], 
-            target=state.opt,
-        )
+        if os.path.exists(checkpoints_dir["load_opt"]):
+            state = checkpoints.restore_checkpoint(
+                ckpt_dir=checkpoints_dir["load_opt"], 
+                target=state.opt,
+            )
         
     elif os.path.exists(checkpoints_dir["load_state"]):
         # Load state (model, optimizer, params) has been trained and continue to train
@@ -173,7 +174,7 @@ def main(args):
         train_loss = []
         # Train the model
         for step in range(1, num_steps+1):
-             # Token count exceeds token_length, next data
+            # Token count exceeds token_length, next data
             while True:
                 try:
                     batch, decoder_loss_weights = data_parallel(
@@ -225,8 +226,8 @@ def main(args):
 
     del batch, decoder_loss_weights, train_ds_iter, val_ds_iter
     # Save the final checkpoint
-    # save_path = save_parameters(cfg, flax.jax_utils.unreplicate(state), step)
     save_optimizer(cfg, flax.jax_utils.unreplicate(state))
+    # save_path = save_parameters(cfg, flax.jax_utils.unreplicate(state), step)
     # save_checkpoint_state(cfg, flax.jax_utils.unreplicate(state))
     # LOGGER.info("Training finished! Save the final checkpoint in {}".format(save_path))
     wandb.finish()

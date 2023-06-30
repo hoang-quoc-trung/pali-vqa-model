@@ -309,10 +309,11 @@ class Transformer(nn.Module):
         self.encoder = Encoder(config=cfg, shared_embedding=self.shared_embedding)
         self.decoder = Decoder(config=cfg, shared_embedding=self.shared_embedding)
 
-    def encode(self,
-               encoder_input_tokens,
-               encoder_segment_ids=None,
-               enable_dropout=True
+    def encode(
+        self,
+        encoder_input_tokens,
+        encoder_segment_ids=None,
+        enable_dropout=True
     ):
         """Applies Transformer encoder-branch on the inputs."""
         cfg = self.config

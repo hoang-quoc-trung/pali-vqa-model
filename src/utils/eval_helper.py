@@ -1,9 +1,13 @@
 import jax
 import numpy as np
 from flax import linen as nn
-from models.pali import cider_score, cross_entropy_loss
-
-from .train_helper import hardware_setting
+from .train_helper import (
+    hardware_setting,
+    get_loss_normalizing_factor_and_weights,
+    compute_weighted_cross_entropy,
+    SpecialLossNormalizingFactor,
+    
+)
 from models.pali import combine_metrics
 
 
@@ -21,29 +25,39 @@ def load_checkpoint(checkpoints_path: str):
     return params
 
 
-def get_eval_step(config: dict, model: nn.Module):
+def get_eval_step(model: nn.Module):
     """Get evaluating step for Pali model
 
     Args:
-        config (dict): config file load from yaml
+        model (nn.Module): Pali model
 
     Returns:
         function: evaluating step function
     """
-    VOCAB_SIZE = config["t5"]["vocab_size"]
 
     # Enable jit for faster evaluation
     @jax.jit
-    def val_step(params, X, y):
-        outputs = model.apply(params, **X)
-        logits = outputs["logits"]
-        loss = cross_entropy_loss(logits, y, vocab_size=VOCAB_SIZE)
-        return loss, logits
+    def val_step(params, batch, decoder_loss_weights):
+        outputs = model.apply(params, **batch, decoder_loss_weights)
+        (loss_normalizing_factor, weights) = get_loss_normalizing_factor_and_weights(
+            loss_normalizing_factor=SpecialLossNormalizingFactor.NUM_REAL_TARGET_TOKENS,
+            loss_weights=decoder_loss_weights,
+            batch=batch,
+        )
+        loss, z_loss, weight_sum = compute_weighted_cross_entropy(
+            logits=outputs["logits"],
+            targets=batch['decoder_target_tokens'],
+            weights=weights,
+            label_smoothing=0.1,
+            z_loss=0.0001,
+            loss_normalizing_factor=loss_normalizing_factor,
+        )
+        return loss, outputs["logits"]
 
     # Currently, CIDEr metric is not supported in jax.jit
-    def eval_step(params, X, y):
-        loss, logits = val_step(params, X, y)
-        cider, bleu = combine_metrics(logits, y)
+    def eval_step(params, batch, decoder_loss_weights):
+        loss, logits = val_step(params, batch, decoder_loss_weights)
+        cider, bleu = combine_metrics(logits, batch['decoder_target_tokens'])
         return loss, cider, bleu
 
     return eval_step

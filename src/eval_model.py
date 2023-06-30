@@ -1,7 +1,6 @@
 import argparse
 import logging
 import os
-
 import numpy as np
 import yaml
 from models.pali import PaLI
@@ -47,7 +46,7 @@ def main(args):
         decoder_target_tokens=hpparams['decoder_target_tokens'],
     )
 
-    eval_step_fn = get_eval_step(cfg, model)
+    eval_step_fn = get_eval_step(model)
 
     LOGGER.info("Start evaluation on validation dataset")
     val_ds_iter = iter(val_ds)
@@ -57,8 +56,14 @@ def main(args):
     with tqdm(total=val_steps) as pbar:
         # Evaluate the model on 5000 samples
         for _ in range(val_steps):
-            X, y = next(val_ds_iter)
-            loss, cider = eval_step_fn(params, X, y)
+            # Token count exceeds token_length, next data
+            while True:
+                try:
+                    batch, decoder_loss_weights = next(val_ds_iter)
+                    break
+                except Exception as e:
+                    continue
+            loss, cider = eval_step_fn(params, batch, decoder_loss_weights)
             # Save history of metrics across the entire batch
             batch_cider.append(cider)
             batch_loss.append(loss)

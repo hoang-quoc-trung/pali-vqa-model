@@ -31,10 +31,10 @@ VisionTransformer = models_vit.VisionTransformer
 
 
 def get_model(name, **kw):
-  """Returns a model as specified in `model_configs.MODEL_CONFIGS`."""
-  if name.startswith('Mixer-'):
-    return MlpMixer(**model_configs.MODEL_CONFIGS[name], **kw)
-  elif name.startswith('LiT-'):
-    return LitModel(**model_configs.MODEL_CONFIGS[name], **kw)
-  else:
-    return VisionTransformer(**model_configs.MODEL_CONFIGS[name], **kw)
+    """Returns a model as specified in `model_configs.MODEL_CONFIGS`."""
+    if name.startswith('Mixer-'):
+        return MlpMixer(**model_configs.MODEL_CONFIGS[name], **kw)
+    elif name.startswith('LiT-'):
+        return LitModel(**model_configs.MODEL_CONFIGS[name], **kw)
+    else:
+        return VisionTransformer(**model_configs.MODEL_CONFIGS[name], **kw)

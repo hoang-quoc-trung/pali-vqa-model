@@ -1,24 +1,9 @@
 import enum
-from typing import Tuple, Mapping, Optional, Union
+from typing import Tuple, Optional, Union
 import jax
-import optax
 import jax.numpy as jnp
 import numpy as np
 from flax.training import common_utils
-
-def cross_entropy_loss(logits, targets, vocab_size):
-    """Compute the cross-entropy loss between logits and targets.
-
-    Args:
-        logits (Array): Logits predicted by the model.
-        targets (Array): Target token indices.
-        vocab_size (int): Size of the vocabulary.
-
-    Returns:
-        float: Average cross-entropy loss.
-    """
-    targets_1hot = jax.nn.one_hot(targets, num_classes=vocab_size, axis=-1)
-    return optax.softmax_cross_entropy(logits=logits, labels=targets_1hot).mean()
 
 
 @jax.custom_vjp
@@ -36,17 +21,17 @@ def cross_entropy_with_logits(
     will be added to the cross entropy loss (z = softmax normalization constant).
     The two uses of z_loss are:
     1. To keep the logits from drifting too far from zero, which can cause
-       unacceptable roundoff errors in bfloat16.
+        unacceptable roundoff errors in bfloat16.
     2. To encourage the logits to be normalized log-probabilities.
 
     Args:
-      logits: [batch, length, num_classes] float array.
-      targets: categorical one-hot targets [batch, length, num_classes] float array.
-      z_loss: coefficient for auxilliary z-loss loss term.
+        logits: [batch, length, num_classes] float array.
+        targets: categorical one-hot targets [batch, length, num_classes] float array.
+        z_loss: coefficient for auxilliary z-loss loss term.
 
     Returns:
-      tuple with the total loss and the z_loss, both
-      float arrays with shape [batch, length].
+        tuple with the total loss and the z_loss, both
+        float arrays with shape [batch, length].
     """
     logits_sum = jax.scipy.special.logsumexp(logits, axis=-1, keepdims=True)
     log_softmax = logits - logits_sum
@@ -62,9 +47,18 @@ def _cross_entropy_with_logits_fwd(
     logits: jnp.ndarray,
     targets: jnp.ndarray,
     z_loss: float = 0.0
-) -> Tuple[Tuple[jnp.ndarray, jnp.ndarray],
-           Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray,
-                 jnp.ndarray, jnp.ndarray, jnp.ndarray]]:
+) -> Tuple[
+    Tuple[jnp.ndarray, jnp.ndarray],
+    Tuple[
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray
+        ]
+    ]:
     """Forward-mode of `cross_entropy_with_logits`."""
     max_logit = logits.max(axis=-1, keepdims=True)
     shifted = logits - max_logit
@@ -81,8 +75,18 @@ def _cross_entropy_with_logits_fwd(
 
 
 def _cross_entropy_with_logits_bwd(
-    res: Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray,
-               jnp.ndarray, jnp.ndarray], g: Tuple[jnp.ndarray, jnp.ndarray]
+    res: Tuple[
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray
+        ], g: Tuple[
+            jnp.ndarray,
+            jnp.ndarray
+        ]
 ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Backward-mode of `cross_entropy_with_logits`."""
     g = g[0]  # Ignore z_loss component as that is only used for logging.
@@ -110,22 +114,23 @@ def compute_weighted_cross_entropy(
     """Compute weighted cross entropy and entropy for log probs and targets.
 
     Args:
-     logits: [batch, length, num_classes] float array.
-     targets: categorical targets [batch, length] int array.
-     weights: None or array of shape [batch, length].
-     label_smoothing: label smoothing constant, used to determine the on and off
-       values.
-     z_loss: coefficient for auxiliary z-loss loss term.
-     loss_normalizing_factor: Constant to divide loss by. If not specified, loss
-       will not be normalized. Intended for backward compatibility with T5-MTF
-       training. Should not normally be used.
+        logits: [batch, length, num_classes] float array.
+        targets: categorical targets [batch, length] int array.
+        weights: None or array of shape [batch, length].
+        label_smoothing: label smoothing constant, used to determine the on and off
+        values.
+        z_loss: coefficient for auxiliary z-loss loss term.
+        loss_normalizing_factor: Constant to divide loss by. If not specified, loss
+        will not be normalized. Intended for backward compatibility with T5-MTF
+        training. Should not normally be used.
 
     Returns:
-      Tuple of scalar loss, z_loss, and weight sum.
+        Tuple of scalar loss, z_loss, and weight sum.
     """
     if logits.ndim != targets.ndim + 1:
         raise ValueError('Incorrect shapes. Got shape %s logits and %s targets' %
-                         (str(logits.shape), str(targets.shape)))
+                        (str(logits.shape), str(targets.shape))
+        )
     vocab_size = logits.shape[-1]
     confidence = 1.0 - label_smoothing
     low_confidence = (1.0 - confidence) / (vocab_size - 1)

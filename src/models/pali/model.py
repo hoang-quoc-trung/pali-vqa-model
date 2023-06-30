@@ -48,7 +48,6 @@ class Encoder(nn.Module):
         )
         x = x.astype(cfg.dtype)
 
-        # Embedding [batch, 38, 768] -> T5 + ViT [batch, 88, 768]
         for lyr in range(cfg.num_encoder_layers):
             # [batch, length, emb_dim] -> [batch, length, emb_dim]
             x = EncoderLayer(
@@ -58,9 +57,10 @@ class Encoder(nn.Module):
         x = layers.LayerNorm(dtype=cfg.dtype, name="encoder_norm")(x)
         x = nn.Dropout(rate=cfg.dropout_rate)(x, deterministic=deterministic)
         # Add patch_vit_embs to x
+        # Patch ViT Embedding: [batch, patch=50, dim=768]
+        # T5_encoder: [batch, length=38, emb_dim=768] 
         # [batch, length, emb_dim] -> [batch, length + patch_vit_embs.shape[1], emb_dim]
-        # Patch ViT Embedding: [batch, 50, 768]
-        # x: [batch, 38, 768] -> concatenate(ViT, T5 Encoder): [batch, 88, 768]
+        # -> [batch, 88, 768] 
         return jnp.concatenate([x, patch_vit_embs], axis=1)
 
 
