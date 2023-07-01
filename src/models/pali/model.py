@@ -208,11 +208,10 @@ class PaLI(nn.Module):
         decoder_input_tokens,
         decoder_target_tokens,
         *,
-        vit_train=False,
-        enable_dropout=True,
+        enable_dropout=False,
         decode=False,
     ):
-        patch_embs = self.VisionTransformer_0(images, train=vit_train)
+        patch_embs = self.VisionTransformer_0(images, train=enable_dropout)
 
         outputs = self.MergeT5_0(
             encoder_input_tokens,
@@ -308,7 +307,7 @@ def get_t5x_pretrained(config: dict):
             shape=(hpparams["train_batch_size"], hpparams["decoder_target_tokens"])
         ),
     }
-    variables = t5_model.init(rng, **dummy_inputs)
+    variables = t5_model.init(rng, **dummy_inputs, enable_dropout=False)
 
     # Load pretrained weights
     nest_asyncio.apply()

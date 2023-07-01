@@ -95,7 +95,10 @@ def init_pali_params(
         ),
     }
     # Init parameters
-    variables = model.init(jax.random.PRNGKey(seed), **dummy_inputs) 
+    rng = jax.random.PRNGKey(seed)
+    init_rng, init_rng_dropout = jax.random.split(rng, num=2)
+    init_rngs = {'params': init_rng, 'dropout': init_rng_dropout}
+    variables = model.init(init_rngs, **dummy_inputs, enable_dropout=False) 
     
     return variables
 
@@ -312,7 +315,13 @@ def create_train_state(
 @jax.jit  # Define the training, evaluating step with @jax.jit for faster training
 def _train_step(state: train_state.TrainState, batch, decoder_loss_weights):
     def loss_fn(state, params, batch, decoder_loss_weights):
-        outputs = state.apply_fn(params, **batch)
+        dropout_key = jax.random.PRNGKey(seed=0)
+        outputs = state.apply_fn(
+            params,
+            **batch,
+            enable_dropout=True,
+            rngs={"dropout": dropout_key}
+        )
         """ NOTE: When fine-tuning the public T5 checkpoints (trained in T5 MeshTF) the loss 
             normalizing factor should be set to pretraining batch_size * target_token_length.
         """
@@ -365,7 +374,7 @@ def train_step(state: train_state.TrainState, batch, decoder_loss_weights):
 
 @jax.jit  # Define the training, evaluating step with @jax.jit for faster training
 def _eval_step(state: train_state.TrainState, batch, decoder_loss_weights):
-    outputs = state.apply_fn(state.params, **batch)
+    outputs = state.apply_fn(state.params, **batch, enable_dropout=False)
     (loss_normalizing_factor, weights) = get_loss_normalizing_factor_and_weights(
         loss_normalizing_factor=SpecialLossNormalizingFactor.NUM_REAL_TARGET_TOKENS,
         loss_weights=decoder_loss_weights,
@@ -415,7 +424,13 @@ def train_step_multi_gpu(state: train_state.TrainState, batch, decoder_loss_weig
     """
     @jax.jit
     def loss_fn(state, params, batch, decoder_loss_weights):
-        outputs = state.apply_fn(params, **batch)
+        dropout_key = jax.random.PRNGKey(seed=0)
+        outputs = state.apply_fn(
+            params, 
+            **batch,
+            enable_dropout=True,
+            rngs={"dropout": dropout_key}
+        )
         (loss_normalizing_factor, weights) = get_loss_normalizing_factor_and_weights(
             loss_normalizing_factor=SpecialLossNormalizingFactor.NUM_REAL_TARGET_TOKENS,
             loss_weights=decoder_loss_weights,
@@ -457,7 +472,8 @@ def eval_step_multi_gpu(state: train_state.TrainState, batch, decoder_loss_weigh
     Returns:
         loss: The calculated loss for the step.
     """
-    outputs = state.apply_fn(state.params, **batch)
+    dropout_key = jax.random.PRNGKey(seed=0)
+    outputs = state.apply_fn(state.params, **batch, enable_dropout=False)
     (loss_normalizing_factor, weights) = get_loss_normalizing_factor_and_weights(
         loss_normalizing_factor=SpecialLossNormalizingFactor.NUM_REAL_TARGET_TOKENS,
         loss_weights=decoder_loss_weights,

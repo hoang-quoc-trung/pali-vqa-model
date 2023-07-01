@@ -39,7 +39,7 @@ checkpoints_dir:
 
 t5:
   gin_file: 'models/t5x/t5x/examples/t5/t5_1_1/base.gin'
-  dropout_rate: 0.0
+  dropout_rate: 0.1
   vit_patches_embs_size: 50
   pretrained_path: '/kaggle/working/pali-model/pretrained/flan_t5_base'
   vocab_size: 32128
