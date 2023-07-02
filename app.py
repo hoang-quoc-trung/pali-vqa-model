@@ -39,10 +39,14 @@ def main(args):
     params = load_checkpoint(args.ckpt)
     
     infer_step_fn = get_infer_step(cfg, model)
-    
+    hpparams = cfg["hyperparams"]
     def inference(input_image, input_question, batch_size=1):
         dataloader, questions = getInferenceTFData(
-            input_image, input_question, batch_size
+            image_paths=input_image,
+            questions=input_question,
+            batch_size=batch_size,
+            encoder_input_tokens=hpparams['encoder_input_tokens'],
+            decoder_target_tokens=hpparams['decoder_target_tokens'],
         )
         results = []
         for index, inputs in enumerate(dataloader):
