@@ -4,14 +4,14 @@ from functools import lru_cache
 
 class BaseTokenizer:
     """A base dummy tokenizer to derive from."""
-
+    
     def signature(self):
         """
         Returns a signature for the tokenizer.
         :return: signature string
         """
         return "none"
-
+    
     def __call__(self, line):
         """
         Tokenizes an input line with the tokenizer.
@@ -24,7 +24,7 @@ class BaseTokenizer:
 class TokenizerRegexp(BaseTokenizer):
     def signature(self):
         return "re"
-
+    
     def __init__(self):
         self._re = [
             # language-dependent part (assuming Western languages)
@@ -39,21 +39,21 @@ class TokenizerRegexp(BaseTokenizer):
             # NOTE: Doing this in Python (below) is faster
             # (re.compile(r'\s+'), r' '),
         ]
-
+    
     @lru_cache(maxsize=2**16)
     def __call__(self, line):
         """
         Common post-processing tokenizer for `13a` and `zh` tokenizers.
-
+        
         Args:
             line (str): A segment to tokenize.
-
+        
         Returns:
             List[str]: The tokenized line as a list of individual words.
         """
         for (_re, repl) in self._re:
             line = _re.sub(repl, line)
-
+        
         # no leading or trailing spaces, single space within words
         # return ' '.join(line.split())
         # This line is changed with regards to the original tokenizer (seen above) to return individual words
@@ -63,32 +63,32 @@ class TokenizerRegexp(BaseTokenizer):
 class Tokenizer13a(BaseTokenizer):
     def signature(self):
         return "13a"
-
+    
     def __init__(self):
         self._post_tokenizer = TokenizerRegexp()
-
+    
     @lru_cache(maxsize=2**16)
     def __call__(self, line):
         """
         Tokenizes an input line using a relatively minimal tokenization
         that is however equivalent to mteval-v13a, used by WMT.
-
+        
         Args:
             line (str): A segment to tokenize.
-
+        
         Returns:
             List[str]: The tokenized line as a list of individual words.
         """
-
+        
         # language-independent part:
         line = line.replace("<skipped>", "")
         line = line.replace("-\n", "")
         line = line.replace("\n", " ")
-
+        
         if "&" in line:
             line = line.replace("&quot;", '"')
             line = line.replace("&amp;", "&")
             line = line.replace("&lt;", "<")
             line = line.replace("&gt;", ">")
-
+        
         return self._post_tokenizer(f" {line} ")

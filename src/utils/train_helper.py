@@ -32,10 +32,10 @@ def hardware_setting(
 ):
     # Set memory growth for GPU
     set_memory_growth = True
-
+    
     def get_hardware_backend():
         return xla_bridge.get_backend().platform
-
+    
     def get_gpu_memory():
         command = "nvidia-smi --query-gpu=memory.free --format=csv"
         memory_free_info = (
@@ -43,7 +43,7 @@ def hardware_setting(
         )
         memory_free_values = [int(x.split()[0]) for i, x in enumerate(memory_free_info)]
         return memory_free_values
-
+    
     if get_hardware_backend() == "cpu":
         return "cpu"
     elif get_hardware_backend() == "gpu":
@@ -67,12 +67,12 @@ def init_pali_params(
     seed: int = 42,
 ):
     """ Initialize parameters for the model
-
+    
     Args:
         cfg (dict): config file load from yaml
         model (jax.nn.Module): Pali model
         seed (int, optional): Seed for random number generator. Defaults to 42.
-
+    
     Returns:
         dict: a dictionary of parameters for the Pali model
     """
@@ -108,7 +108,7 @@ def load_ViT_pretrained(
     variables: dict,
 ):
     """ Load pretrained ViT parameters
-
+    
     Args:
         config (dict): config file load from yaml
         variables (dict): a dictionary of parameters for the Pali model
@@ -121,7 +121,7 @@ def load_ViT_pretrained(
     variables = variables.unfreeze()
     variables["params"]["VisionTransformer_0"] = vit_params["params"]
     variables = freeze(variables)
-
+    
     return variables
 
 
@@ -130,7 +130,7 @@ def load_T5x_pretrained(
     variables: dict,
 ):
     """ Load pretrained T5x parameters
-
+    
     Args:
         config (dict): config file load from yaml
         variables (dict): a dictionary of parameters for the Pali model
@@ -143,7 +143,7 @@ def load_T5x_pretrained(
     variables = variables.unfreeze()
     variables["params"]["MergeT5_0"] = t5x_params["params"]
     variables = freeze(variables)
-
+    
     return variables
 
 
@@ -154,13 +154,13 @@ def create_train_state(
     optimizer_name: str = "adafactor",
 ):
     """ Create train state for Pali model with ViT parameters is frozen
-
+    
     Args:
         config (dict): config file load from yaml
         model (nn.Module): Pali model
         variables (dict): a dictionary of parameters for the Pali model
         optimizer_name (str, optional): Optimizer name used for training. Defaults to "adafactor".
-
+    
     Returns:
         flax.training.train_state.TrainState: train state for Pali model
     """
@@ -177,7 +177,7 @@ def create_train_state(
         def update_fn(updates, state, params=None):
             return jax.tree_map(jnp.zeros_like, updates), ()
         return optax.GradientTransformation(init_fn, update_fn)
-
+    
     # Create the mask for trainable parameters, freeze params is "zero" and trainable params is "<optimizers_name>"
     def create_mask(params, label_fn, optimizer_name="adafactor"):
         def _map(params, mask, label_fn):
@@ -193,7 +193,7 @@ def create_train_state(
         mask = {}
         _map(params, mask, label_fn)
         return frozen_dict.freeze(mask)
-
+    
     # Simple switch case for optimizer
     def get_optimizer(optimizer_name):
         optim = {
@@ -209,13 +209,13 @@ def create_train_state(
                 )
             )
         return optim
-
+    
     # If you want to freeze some layers, pass it to the lambda function
     # Lambda function should return True if the layer's name is in the list for freezing
     trainable_mask = create_mask(
         variables, lambda x: x in ["VisionTransformer_0"], optimizer_name
     ) # ["VisionTransformer_0", "decoder"]
-
+    
     # Define some optimizer, default is adafactor optimizer
     if optimizer_name == 'lion':
         """ The Lion optimizer.
@@ -244,14 +244,14 @@ def create_train_state(
             ),
             optax.clip_by_global_norm(hpparams["clipping_threshold"])
         )
-
+    
     elif optimizer_name == 'adafactor':
         """ The Adafactor optimizer.
         
         Adafactor is an adaptive learning rate optimizer that focuses on fast
         training of large scale neural networks. It saves memory by using a factored
         estimate of the second order moments used to scale gradients.
-
+        
         References:
             Shazeer and Stern, 2018: https://arxiv.org/abs/1804.04235
         """
@@ -279,7 +279,7 @@ def create_train_state(
                 momentum=0.9,
                 clipping_threshold=hpparams["clipping_threshold"],
             )
-        
+    
     elif optimizer_name == 'adamw':
         """ Adam with weight decay regularization.
         
@@ -307,7 +307,7 @@ def create_train_state(
             ),
             optax.clip_by_global_norm(hpparams["clipping_threshold"])
         )
-
+    
     # Create the train state
     return train_state.TrainState.create(apply_fn=model.apply, tx=tx, params=variables)
 
@@ -355,12 +355,12 @@ def _train_step(state: train_state.TrainState, batch, decoder_loss_weights):
 
 def train_step(state: train_state.TrainState, batch, decoder_loss_weights):
     """ Perform a training step.
-
+    
     Args:
         state (train_state.TrainState): The current training state.
         batch: Data for the training step.
         decoder_loss_weights: Loss is computed for all but the padding positions.
-
+    
     Returns:
         new_state (train_state.TrainState): The updated training state after the step.
         loss: The calculated loss for the step.
@@ -393,12 +393,12 @@ def _eval_step(state: train_state.TrainState, batch, decoder_loss_weights):
 
 def eval_step(state: train_state.TrainState, batch, decoder_loss_weights):
     """ Perform an evaluation step.
-
+    
     Args:
         state (train_state.TrainState): The current training state.
         batch: Data for the training step.
         decoder_loss_weights: Loss is computed for all but the padding positions.
-
+    
     Returns:
         loss: The calculated loss for the step.
         cider: The computed CIDEr score.
@@ -412,12 +412,12 @@ def eval_step(state: train_state.TrainState, batch, decoder_loss_weights):
 @partial(jax.pmap, axis_name="num_devices")
 def train_step_multi_gpu(state: train_state.TrainState, batch, decoder_loss_weights):
     """ Perform a training step on multiple GPUs.
-
+    
     Args:
         state (train_state.TrainState): The current training state.
         batch:  Data for the training step.
         decoder_loss_weights: Loss is computed for all but the padding positions.
-
+    
     Returns:
         new_state (train_state.TrainState): The updated training state after the step.
         loss: The calculated loss for the step.
@@ -463,12 +463,12 @@ def train_step_multi_gpu(state: train_state.TrainState, batch, decoder_loss_weig
 @partial(jax.pmap, axis_name="num_devices")
 def eval_step_multi_gpu(state: train_state.TrainState, batch, decoder_loss_weights):
     """ Perform a multi-GPU evaluation step.
-
+    
     Args:
         state (train_state.TrainState): The current training state.
         batch: Data for the training step.
         decoder_loss_weights: Loss is computed for all but the padding positions.
-
+    
     Returns:
         loss: The calculated loss for the step.
     """
@@ -496,11 +496,11 @@ def data_parallel(
     num_devices: Optional[int] = None,
 ):
     """ Reshape data for multiple GPUs
-
+    
     Args:
         data: Iterator providing the data for training or evaluation.
         num_devices (int, optional): Number of devices to consider when reshaping the data. Defaults to None.
-
+    
     Returns:
         batch: Data for training
         decoder_loss_weights: Loss is computed for all but the padding positions.
@@ -531,7 +531,7 @@ def save_checkpoint_state(
     state: train_state.TrainState,
 ):
     """ Save training state and parameters for Pali model
-
+    
     Args:
         config (dict): config file load from yaml
         state (train_state.TrainState): train state for Pali model
@@ -555,7 +555,7 @@ def save_optimizer(
     state: train_state.TrainState,
 ):
     """ Save optimizer state for training to continue training from the saved state
-
+    
     Args:
         config (dict): Configuration file loaded from YAML
         state (train_state.TrainState): Train state containing the optimizer state
@@ -586,7 +586,7 @@ def save_history(
     file_name="history.csv",
 ):
     """ Save training history to csv file
-
+    
     Args:
         config (dict): config file load from yaml
         step (int): the current step when saving the history
@@ -595,7 +595,7 @@ def save_history(
         val_cider (float): cider score for validation
         val_loss (float): loss value for validation
         file_name (str, optional): file name for saving the history. Defaults to "history.csv".
-
+    
     Returns:
         str: path to the saved history file
     """
@@ -639,7 +639,7 @@ def save_history_multi_gpu(
         train_loss (float): loss value for training
         val_loss (float): loss value for validation
         file_name (str, optional): file name for saving the history. Defaults to "history_multi_gpu.csv".
-
+    
     Returns:
         str: path to the saved history file
     """
@@ -662,15 +662,15 @@ def save_history_multi_gpu(
                 "val_bleu": val_bleu,
             }
         )
-        
-        
+
+
 def save_parameters(
     config: dict,
     state: train_state.TrainState,
     step: int,
 ):
     """ Save only the parameters for the model.
-
+    
     Args:
         config (dict): config file load from yaml
         state (train_state.TrainState): train state for model

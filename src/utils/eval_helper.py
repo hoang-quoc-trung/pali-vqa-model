@@ -13,10 +13,10 @@ from models.pali import combine_metrics
 
 def load_checkpoint(checkpoints_path: str):
     """Load only the parameters for the model.
-
+    
     Args:
         checkpoint_dir (str): path to load the model's parameters
-
+    
     Returns:
         params: parameters for the model
     """
@@ -27,14 +27,14 @@ def load_checkpoint(checkpoints_path: str):
 
 def get_eval_step(model: nn.Module):
     """Get evaluating step for Pali model
-
+    
     Args:
         model (nn.Module): Pali model
-
+    
     Returns:
         function: evaluating step function
     """
-
+    
     # Enable jit for faster evaluation
     @jax.jit
     def val_step(params, batch, decoder_loss_weights):
@@ -53,11 +53,11 @@ def get_eval_step(model: nn.Module):
             loss_normalizing_factor=loss_normalizing_factor,
         )
         return loss, outputs["logits"]
-
+    
     # Currently, CIDEr metric is not supported in jax.jit
     def eval_step(params, batch, decoder_loss_weights):
         loss, logits = val_step(params, batch, decoder_loss_weights)
         cider, bleu = combine_metrics(logits, batch['decoder_target_tokens'])
         return loss, cider, bleu
-
+    
     return eval_step

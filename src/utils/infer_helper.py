@@ -16,10 +16,10 @@ def hardware_setting(args):
     # Set memory growth for GPU
     set_memory_growth = True
     os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
-
+    
     def get_hardware_backend():
         return xla_bridge.get_backend().platform
-
+    
     def get_gpu_memory():
         command = "nvidia-smi --query-gpu=memory.free --format=csv"
         memory_free_info = (
@@ -27,7 +27,7 @@ def hardware_setting(args):
         )
         memory_free_values = [int(x.split()[0]) for i, x in enumerate(memory_free_info)]
         return memory_free_values
-
+    
     if get_hardware_backend() == "cpu":
         return "cpu"
     elif get_hardware_backend() == "gpu":
@@ -44,7 +44,8 @@ def hardware_setting(args):
             os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = str(memory_limit)
             os.environ["XLA_FLAGS"] = "--xla_gpu_strict_conv_algorithm_picker=false"
         return "gpu"
-    
+
+
 # Ref https://github.com/google-research/t5x/blob/main/t5x/models.py#:~:text=cache%27%5D%2C%20initial_index-,def%20predict_batch_with_aux(,%2D1%2C%20%3A%5D%2C%20%7B%27scores%27%3A%20scores%5B%3A%2C%20%2D1%5D%7D,-def%20score_batch(
 def _compute_logits_from_slice(
     decoding_state,
@@ -57,7 +58,7 @@ def _compute_logits_from_slice(
     """Token slice to logits from decoder model."""
     flat_ids = decoding_state.cur_token
     flat_cache = decoding_state.cache
-
+    
     # flat_ids: [batch * beam, seq_len=1]
     # cache is expanded inside beam_search to become flat_cache
     # flat_cache: [batch * beam, num_heads, depth_per_head, max_decode_len]
@@ -90,7 +91,7 @@ def get_infer_step(
     batch_size: int = 1,
 ):
     """Get inference step for Pali model
-
+    
     Args:
         config (dict): config file load from yaml
         model (nn.Module): Pali model
@@ -102,9 +103,9 @@ def get_infer_step(
     Returns:
         function: evaluating step function
     """
-
+    
     hpparams = config["hyperparams"]
-
+    
     # Dummy inputs, Pali model requires 4 inputs: 1 for image and 3 for text
     dummy_inputs = {
         "images": jnp.ones(shape=(batch_size,) + tuple(hpparams["image_size"]) + (3,)),
@@ -118,7 +119,7 @@ def get_infer_step(
             shape=(batch_size, hpparams["decoder_target_tokens"])
         ),
     }
-
+    
     @jax.jit
     def infer_step(
         params: dict,
@@ -126,14 +127,14 @@ def get_infer_step(
         decoder_params: dict = None,
     ):
         """Predict with fast decoding beam search on a batch.
-
+        
         Here we refer to "parameters" for values that can be compiled into the
         model dynamically, as opposed to static configuration settings that require
         a recompile. For example, the model weights and the decoder brevity-penalty
         are parameters and can be modified without requiring a recompile. The number
         of layers, the batch size and the decoder beam size are configuration
         options that require recompilation if changed.
-
+        
         This method can be used with a customizable decoding function as long as it
         follows the signature of `DecodeFnCallable`. In order to provide a unified
         interface for the decoding functions, we use a generic names. For example, a
@@ -143,19 +144,19 @@ def get_infer_step(
         `self._decode_fn` is a beam search. For temperature sampling, `num_decodes`
         corresponds to the number of independent sequences to be sampled. Typically
         `num_decodes = 1` is used for temperature sampling.
-
+        
         If `return_all_decodes = True`, the return tuple contains the predictions
         with a shape [batch, num_decodes, max_decode_len] and the scores (i.e., log
         probability of the generated sequence) with a shape [batch, num_decodes].
-
+        
         If `return_all_decodes = False`, the return tuple contains the predictions
         with a shape [batch, max_decode_len] and the scores with a shape [batch].
-
+        
         `decoder_params` can be used to pass dynamic configurations to
         `self.decode_fn`. An example usage is to pass different random seed (i.e.,
         `jax.random.PRNGKey(seed)` with different `seed` value). This can be done by
         setting `decoder_params['decode_rng'] = jax.random.PRNGKey(seed)`.
-
+        
         If `prompt_with_targets = True`, then `decoder_prompt_inputs` is initialized
         from the batch's `decoder_input_tokens`. The EOS is stripped to avoid
         decoding to stop after the prompt by matching to `output_vocabulary.eos_id`.
@@ -168,7 +169,7 @@ def get_infer_step(
             return_all_decodes: whether to return the entire beam or just the top-1.
             num_decodes: the number of beams to use in beam search.
             prompt_with_targets: Whether the force decode decoder_inputs.
-
+        
         Returns:
             A tuple containing:
                 the batch of predictions, with the entire beam if requested
@@ -177,7 +178,7 @@ def get_infer_step(
         # [batch, input_len]
         inputs_text = X["encoder_input_tokens"]
         target_shape = X["decoder_input_tokens"].shape
-
+        
         # Prepare zeroed-out autoregressive cache.
         outputs, variables_with_cache = model.apply(
             params,
@@ -186,9 +187,9 @@ def get_infer_step(
             decode=True,
             mutable=["cache"],
         )
-
+        
         cache = variables_with_cache["cache"]
-
+        
         # Prepare transformer fast-decoder call for beam search: for beam search, we
         # need to set up our decoder model to handle a batch size equal to
         # batch_size * num_decodes, where each batch item's data is expanded
@@ -212,7 +213,7 @@ def get_infer_step(
         )
         # [batch * num_decodes, input_len]
         raw_inputs = decoding.flat_batch_beam_expand(inputs_text, num_decodes)
-
+        
         tokens_ids_to_logits = functools.partial(
             _compute_logits_from_slice,
             params=params,
@@ -223,7 +224,7 @@ def get_infer_step(
         )
         if decoder_params is None:
             decoder_params = {}
-
+        
         if rng is not None:
             if decoder_params.get("decode_rng", None) is not None:
                 raise ValueError(
@@ -232,7 +233,7 @@ def get_infer_step(
                     "Please specify one or the other."
                 )
             decoder_params["decode_rng"] = rng
-
+        
         # `decoder_prompt_inputs` is initialized from the batch's
         # `decoder_input_tokens`. The EOS is stripped to avoid decoding to stop
         # after the prompt by matching to `output_vocabulary.eos_id`.
@@ -244,7 +245,7 @@ def get_infer_step(
             )
         else:
             decoder_prompt_inputs = jnp.zeros_like(X["decoder_input_tokens"])
-
+        
         # TODO(hwchung): rename the returned value names to more generic ones.
         # Using the above-defined single-step decoder function, run a
         # beam search over possible sequences given input encoding.
@@ -252,10 +253,10 @@ def get_infer_step(
         # scores: [batch, num_decodes]
         # hasattr(self.module, 'scan_layers') and self.module.scan_layers
         scanned = False
-
+        
         if "eos_id" not in decoder_params:
             decoder_params["eos_id"] = OUTPUT_VOCABULARY.eos_id
-
+        
         decodes, scores = decoding.beam_search(
             inputs=decoder_prompt_inputs,
             cache=cache,
@@ -271,16 +272,16 @@ def get_infer_step(
             return decodes, {"scores": scores}
         else:
             return decodes[:, -1, :], scores[:, -1]
-
+    
     return infer_step
 
 
 def decode_output(encode_tokens):
     """Decodes the output tokens to text.
-
+    
     Args:
         encode_tokens (np.array): a batch of encoded tokens or a single encoded tokens.
-
+    
     Returns:
         list: list of decoded text.
     """

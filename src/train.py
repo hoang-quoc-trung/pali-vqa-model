@@ -41,11 +41,11 @@ def main(args):
     assert os.path.exists(
         args.config_path
     ), f"Config file {args.config_path} does not exist!"
-
+    
     # Hardware setting
     device = hardware_setting(args)
     LOGGER.info(f"Training on {device}")
-
+    
     # Load the config file
     cfg = yaml.safe_load(open(args.config_path))
     cfg["checkpoints_dir"]["save_state"] = os.path.join(
@@ -54,7 +54,7 @@ def main(args):
     )
     hpparams = cfg["hyperparams"]
     checkpoints_dir = cfg["checkpoints_dir"]
-
+    
     # PaLi model
     LOGGER.info("Init PaLI model parameters")
     model = PaLI(cfg)
@@ -69,8 +69,8 @@ def main(args):
     # Init wandb
     LOGGER.info("Init WanDB")
     init_wandb(cfg)
-
-#--------------------------------------------------------------------------------------------
+    
+    #----------------------------------------------------------------------------------------
     # # Create the train state
     # state = create_train_state(
     #     cfg,
@@ -78,8 +78,8 @@ def main(args):
     #     variables,
     #     optimizer_name="adam",
     # )
- #--------------------------------------------------------------------------------------------
- 
+    #----------------------------------------------------------------------------------------
+    
     # Load params has been trained and continue to train
     if os.path.exists(checkpoints_dir["load_params"]):
         LOGGER.info(
@@ -101,14 +101,14 @@ def main(args):
             variables,
             optimizer_name="adafactor",
         )
-        
+    
     # Load state has been trained and continue to train
     if os.path.exists(checkpoints_dir["load_state"]):
         LOGGER.info(
             "Restoring checkpoint... from {}".format(checkpoints_dir["load_state"])
         )
         state = checkpoints.restore_checkpoint(checkpoints_dir["load_state"], state)
-        
+    
     # Init dataset
     ds_cfg = cfg["dataset"]
     train_ds, _ = getTFDataGenerator(
@@ -152,7 +152,7 @@ def main(args):
                 )
                 pbar.update(1)
         return np.mean(val_loss), np.mean(val_cider), np.mean(val_bleu)
-
+    
     LOGGER.info("Start training...")
     """--------------------------------- Start Training Loop ---------------------------------"""
     
@@ -164,7 +164,7 @@ def main(args):
     with tqdm(total=num_steps) as pbar:
         train_cider, train_bleu, train_loss = [], [], []
         for step in range(1, num_steps + 1):
-             # Token count exceeds token_length, next data
+            # Token count exceeds token_length, next data
             while True:
                 try:
                     batch, decoder_loss_weights = next(train_ds_iter)
@@ -222,7 +222,7 @@ def main(args):
                     # save_checkpoint_state(cfg, state)
                     save_path = save_parameters(cfg, state, step)
                     # LOGGER.info("Save checkpoint in {}".format(save_path))          
-
+    
     # Save the final checkpoint
     # save_checkpoint_state(cfg, state)
     save_path = save_parameters(cfg, state, step)

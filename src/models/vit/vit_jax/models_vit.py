@@ -25,7 +25,7 @@ Dtype = Any
 
 class IdentityLayer(nn.Module):
     """Identity layer, convenient for giving a name to an array."""
-
+    
     @nn.compact
     def __call__(self, x):
         return x
@@ -33,20 +33,20 @@ class IdentityLayer(nn.Module):
 
 class AddPositionEmbs(nn.Module):
     """Adds learned positional embeddings to the inputs.
-
+    
     Attributes:
         posemb_init: positional embedding initializer.
     """
 
     posemb_init: Callable[[PRNGKey, Shape, Dtype], Array]
-
+    
     @nn.compact
     def __call__(self, inputs):
         """Applies the AddPositionEmbs module.
-
+        
         Args:
         inputs: Inputs to the layer.
-
+        
         Returns:
         Output tensor with shape `(bs, timesteps, in_dim)`.
         """
@@ -61,7 +61,7 @@ class AddPositionEmbs(nn.Module):
 
 class MlpBlock(nn.Module):
     """Transformer MLP / feed-forward block."""
-
+    
     mlp_dim: int
     dtype: Dtype = jnp.float32
     out_dim: Optional[int] = None
@@ -70,7 +70,7 @@ class MlpBlock(nn.Module):
                             Array] = nn.initializers.xavier_uniform()
     bias_init: Callable[[PRNGKey, Shape, Dtype],
                         Array] = nn.initializers.normal(stddev=1e-6)
-
+    
     @nn.compact
     def __call__(self, inputs, *, deterministic):
         """Applies Transformer MlpBlock module."""
@@ -95,7 +95,7 @@ class MlpBlock(nn.Module):
 
 class Encoder1DBlock(nn.Module):
     """Transformer encoder layer.
-
+    
     Attributes:
         inputs: input data.
         mlp_dim: dimension of the mlp on top of attention block.
@@ -105,25 +105,25 @@ class Encoder1DBlock(nn.Module):
         deterministic: bool, deterministic or not (to apply dropout).
         num_heads: Number of heads in nn.MultiHeadDotProductAttention
     """
-
+    
     mlp_dim: int
     num_heads: int
     dtype: Dtype = jnp.float32
     dropout_rate: float = 0.1
     attention_dropout_rate: float = 0.1
-
+    
     @nn.compact
     def __call__(self, inputs, *, deterministic):
         """Applies Encoder1DBlock module.
-
+        
         Args:
         inputs: Inputs to the layer.
         deterministic: Dropout will not be applied when set to true.
-
+        
         Returns:
         output after transformer encoder block.
         """
-
+        
         # Attention block.
         assert inputs.ndim == 3, f'Expected (batch, seq, hidden) got {inputs.shape}'
         x = nn.LayerNorm(dtype=self.dtype)(inputs)
@@ -137,7 +137,7 @@ class Encoder1DBlock(nn.Module):
         )(x, x)
         x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=deterministic)
         x = x + inputs
-
+        
         # MLP block.
         y = nn.LayerNorm(dtype=self.dtype)(x)
         y = MlpBlock(
@@ -145,13 +145,13 @@ class Encoder1DBlock(nn.Module):
             dtype=self.dtype,
             dropout_rate=self.dropout_rate
         )(y, deterministic=deterministic)
-
+        
         return x + y
 
 
 class Encoder(nn.Module):
     """Transformer Model Encoder for sequence to sequence translation.
-
+    
     Attributes:
         num_layers: number of layers
         mlp_dim: dimension of the mlp on top of attention block
@@ -159,34 +159,34 @@ class Encoder(nn.Module):
         dropout_rate: dropout rate.
         attention_dropout_rate: dropout rate in self attention.
     """
-
+    
     num_layers: int
     mlp_dim: int
     num_heads: int
     dropout_rate: float = 0.1
     attention_dropout_rate: float = 0.1
     add_position_embedding: bool = True
-
+    
     @nn.compact
     def __call__(self, x, *, train):
         """Applies Transformer model on the inputs.
-
+        
         Args:
         x: Inputs to the layer.
         train: Set to `True` when training.
-
+        
         Returns:
         output of a transformer encoder.
         """
         assert x.ndim == 3  # (batch, len, emb)
-
+        
         if self.add_position_embedding:
             x = AddPositionEmbs(
                 posemb_init=nn.initializers.normal(stddev=0.02),  # from BERT.
                 name='posembed_input'
             )(x)
             x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=not train)
-
+        
         # Input Encoder
         for lyr in range(self.num_layers):
             x = Encoder1DBlock(
@@ -197,13 +197,13 @@ class Encoder(nn.Module):
                 num_heads=self.num_heads
             )(x, deterministic=not train)
         encoded = nn.LayerNorm(name='encoder_norm')(x)
-
+        
         return encoded
 
 
 class VisionTransformer(nn.Module):
     """VisionTransformer."""
-
+    
     num_classes: int
     patches: Any
     transformer: Any
@@ -214,10 +214,10 @@ class VisionTransformer(nn.Module):
     head_bias_init: float = 0.
     encoder: Type[nn.Module] = Encoder
     model_name: Optional[str] = None
-
+    
     @nn.compact
     def __call__(self, inputs, *, train):
-
+    
         x = inputs
         # (Possibly partial) ResNet root.
         if self.resnet is not None:
@@ -233,7 +233,7 @@ class VisionTransformer(nn.Module):
             x = nn.GroupNorm(name='gn_root')(x)
             x = nn.relu(x)
             x = nn.max_pool(x, window_shape=(3, 3), strides=(2, 2), padding='SAME')
-
+            
             # ResNet stages.
             if self.resnet.num_layers:
                 x = models_resnet.ResNetStage(
@@ -249,9 +249,9 @@ class VisionTransformer(nn.Module):
                         first_stride=(2, 2),
                         name=f'block{i + 1}'
                     )(x)
-
+        
         n, h, w, c = x.shape
-
+        
         # We can merge s2d+emb into a single conv; it's the same.
         x = nn.Conv(
             features=self.hidden_size,
@@ -260,22 +260,22 @@ class VisionTransformer(nn.Module):
             padding='VALID',
             name='embedding'
         )(x)
-
+        
         # Here, x is a grid of embeddings.
-
+        
         # (Possibly partial) Transformer.
         if self.transformer is not None:
             n, h, w, c = x.shape
             x = jnp.reshape(x, [n, h * w, c])
-
+            
             # If we want to add a class token, add it here.
             if self.classifier in ['token', 'token_unpooled']:
                 cls = self.param('cls', nn.initializers.zeros, (1, 1, c))
                 cls = jnp.tile(cls, [n, 1, 1])
                 x = jnp.concatenate([cls, x], axis=1)
-
+            
             x = self.encoder(name='Transformer', **self.transformer)(x, train=train)
-
+        
         if self.classifier == 'token':
             x = x[:, 0]
         elif self.classifier == 'gap':
@@ -284,13 +284,13 @@ class VisionTransformer(nn.Module):
             pass
         else:
             raise ValueError(f'Invalid classifier={self.classifier}')
-
+        
         if self.representation_size is not None:
             x = nn.Dense(features=self.representation_size, name='pre_logits')(x)
             x = nn.tanh(x)
         else:
             x = IdentityLayer(name='pre_logits')(x)
-
+        
         if self.num_classes:
             x = nn.Dense(
                 features=self.num_classes,

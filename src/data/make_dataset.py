@@ -14,33 +14,33 @@ from seqio import FeatureConverter, non_padding_position, utils
 # Modify the class EncDecFeatureConverter to support images retrieval
 class EncDecFeatureConverter(FeatureConverter):
     """Feature converter for an encoder-decoder architecture.
-
+    
     The input dataset has "inputs" and "targets" field. These will be converted
     to a subset of standard features.
-
+    
     To use packing, pass pack = True argument to the FeatureConverter's
     constructor. When packing is done, two additional fields are added for each of
     "inputs" and "targets" fields.
-
+    
     Example for a packed dataset:
-
+    
     The input dataset has two examples each with "inputs" and "targets".
-
+    
     ds = [{"inputs": [7, 8, 5, 1], "targets": [3, 9, 1]},
             {"inputs": [8, 4, 9, 3, 1], "targets": [4, 1]}]
-
+    
     task_feature_lengths = {"inputs": 10, "targets": 7}
-
+    
     First, the `inputs` are packed together, padded to length 10 and assigned to
     "encoder_input_tokens" field. The `targets` are processed similarly.
-
+    
     The "*_segment_id" fields are generated from the packing operation. For the
     explanation of these fields, see the module docstring.
-
+    
     The "decoder_loss_weights" is a binary mask indicating where non-padding
     positions are, i.e., value of 1 indicates non-padding and 0 for padding. This
     class assumes that the loss is taken only on the decoder side.
-
+    
     converted_ds = [{
         "encoder_input_tokens": [7, 8, 5, 1, 8, 4, 9, 3, 1, 0],
             "encoder_segment_ids": [1, 1, 1, 1, 2, 2, 2, 2, 2, 0],
@@ -51,10 +51,10 @@ class EncDecFeatureConverter(FeatureConverter):
             "decoder_segment_ids": [1, 1, 1, 2, 2, 0, 0],
             "decoder_positions": [0, 1, 2, 0, 1, 0, 0],
     }]
-
+    
     Note that two examples are packed together into one example.
     """
-
+    
     TASK_FEATURES = {
         "images": FeatureConverter.FeatureSpec(dtype=tf.string),
         "inputs": FeatureConverter.FeatureSpec(dtype=tf.int32),
@@ -73,7 +73,7 @@ class EncDecFeatureConverter(FeatureConverter):
         "encoder_positions": tf.int32,
         "decoder_positions": tf.int32,
     }
-
+    
     def _convert_example(self, features):
         """Convert a seq2seq example into an example with model features."""
         # targets_segment_id is present only for a packed dataset.
@@ -82,7 +82,7 @@ class EncDecFeatureConverter(FeatureConverter):
             sequence_id=features.get("targets_segment_ids", None),
             bos_id=self.bos_id,
         )
-
+        
         d = {
             "images": features["images"],
             "encoder_input_tokens": features["inputs"],
@@ -91,36 +91,36 @@ class EncDecFeatureConverter(FeatureConverter):
             # Loss is computed for all but the padding positions.
             "decoder_loss_weights": non_padding_position(features["targets"]),
         }
-
+        
         if self.pack:
             d["images"] = features["images"]
             d["encoder_segment_ids"] = features["inputs_segment_ids"]
             d["decoder_segment_ids"] = features["targets_segment_ids"]
             d["encoder_positions"] = features["inputs_positions"]
             d["decoder_positions"] = features["targets_positions"]
-
+        
         return d
-
+    
     def _convert_features(self, ds, task_feature_lengths):
         """Convert the dataset to be fed to the encoder-decoder model.
-
+        
         The conversion process involves two steps
-
+        
         1. Each feature in the `task_feature_lengths` is trimmed/padded and
         optionally packed depending on the value of self.pack.
         2. "inputs" fields are mapped to the encoder input and "targets" are mapped
         to decoder input (after being shifted) and target.
-
+        
         All the keys in the `task_feature_lengths` should be present in the input
         dataset, which may contain some extra features that are not in the
         `task_feature_lengths`. They will not be included in the output dataset.
         One common scenario is the "inputs_pretokenized" and "targets_pretokenized"
         fields.
-
+        
         Args:
         ds: an input tf.data.Dataset to be converted.
         task_feature_lengths: a mapping from feature to its length.
-
+        
         Returns:
         ds: the converted dataset.
         """
@@ -128,13 +128,13 @@ class EncDecFeatureConverter(FeatureConverter):
         return ds.map(
             self._convert_example, num_parallel_calls=tf.data.experimental.AUTOTUNE
         )
-
+    
     def get_model_feature_lengths(self, task_feature_lengths):
         """Define the length relationship between input and output features."""
         images_length = task_feature_lengths["images"]
         encoder_length = task_feature_lengths["inputs"]
         decoder_length = task_feature_lengths["targets"]
-
+        
         model_feature_lengths = {
             "images": images_length,
             "encoder_input_tokens": encoder_length,
@@ -148,7 +148,7 @@ class EncDecFeatureConverter(FeatureConverter):
             model_feature_lengths["decoder_segment_ids"] = decoder_length
             model_feature_lengths["encoder_positions"] = encoder_length
             model_feature_lengths["decoder_positions"] = decoder_length
-
+        
         return model_feature_lengths
 
 
@@ -164,7 +164,7 @@ def getTFDataGenerator(
     shuffle: bool = True,
 ):
     """Create Tensorflow Data Generator with pre-processing for Visual Question Answering
-
+    
     Args:
         data_root (str): Path to the data root directory
         csv_file (str): Path to the csv file
@@ -175,7 +175,7 @@ def getTFDataGenerator(
         decoder_target_tokens (int, optional): the maximum number of tokens for the decoder target. Defaults to 18.
         add_eos (bool, optional): add end of sentence token to the decoder target. Defaults to True.
         shuffle (bool, optional): shuffle the dataset. Defaults to True.
-
+    
     Returns:
         tf.data.Dataset: Tensorflow Data Generator in numpy format
         int: the number of samples in the dataset
@@ -193,25 +193,25 @@ def getTFDataGenerator(
         merged_samples["inputs"].append(q)
         merged_samples["targets"].append(a)
     dataset = tf.data.Dataset.from_tensor_slices(merged_samples)
-
+    
     "Tensorflow function for pre-processing"
     # Infinity dataset
     dataset = dataset.repeat()
-
+    
     if shuffle:
         # Shuffle dataset, "I guess the value for buffer_size is about 1/2 of dataset for better shuffle"
         dataset = dataset.shuffle(buffer_size=len(data) // 2)
-
+    
     # Prefetch dataset for faster training
     dataset = dataset.prefetch(tf.data.AUTOTUNE)
-
+    
     # Fix assert error in text_preprocessor create by seqio
     def _images_expand_dims(inputs_data):
         inputs_data["images"] = tf.expand_dims(inputs_data["images"], axis=0)
         return inputs_data
-
+    
     dataset = dataset.map(_images_expand_dims, num_parallel_calls=tf.data.AUTOTUNE)
-
+    
     # Pre-process text: tokenize, append eos, map to vocab ids
     _text_preprocessing = [
         seqio.preprocessors.tokenize,
@@ -242,13 +242,13 @@ def getTFDataGenerator(
     dataset = _text_features_converter_cls(
         dataset, task_feature_lengths=_text_feature_lengths
     )
-
+    
     # Load image, resize, rescale
     def _image_PIL_preprocessing(path):
         img = Image.open(path.decode("utf-8")).resize(resize).convert("RGB")
         img = np.array(img, dtype="float32") * rescale
         return img
-
+    
     def _image_preprocessing(inputs_data):
         img_path = inputs_data["images"]
         # Unsqueeze image path
@@ -256,9 +256,9 @@ def getTFDataGenerator(
         img = tf.numpy_function(_image_PIL_preprocessing, [img_path], tf.float32)
         inputs_data["images"] = img
         return inputs_data
-
+    
     dataset = dataset.map(_image_preprocessing, num_parallel_calls=tf.data.AUTOTUNE)
-
+    
     # Modify return value
     def _return_dataset(inputs_data):
         return {
@@ -267,12 +267,12 @@ def getTFDataGenerator(
             "decoder_input_tokens": inputs_data["decoder_input_tokens"],
             "decoder_target_tokens": inputs_data["decoder_target_tokens"],
         },  inputs_data["decoder_loss_weights"]
-
+    
     dataset = dataset.map(_return_dataset, num_parallel_calls=tf.data.AUTOTUNE)
-
+    
     # Add batch size
     dataset = dataset.batch(batch_size)
-
+    
     return dataset.as_numpy_iterator(), len(data)
 
 
@@ -287,7 +287,7 @@ def getInferenceTFData(
     add_eos: bool = True,
 ):
     """A function to preprocess a batch of images and questions
-
+    
     Args:
         image_path (str/list): path to the image or list of paths to the images
         question (str/list): path to the image or list of paths to the images
@@ -297,7 +297,7 @@ def getInferenceTFData(
         encoder_input_tokens (int, optional): the maximum number of tokens for the encoder input. Defaults to 38.
         decoder_target_tokens (int, optional): the maximum number of tokens for the decoder target. Defaults to 18.
         add_eos (bool, optional): add end of sentence token to the decoder target. Defaults to True.
-
+    
     Returns:
         tf.data.Dataset: Tensorflow Data Generator in numpy format
         int: the number of samples in the dataset
@@ -310,23 +310,23 @@ def getInferenceTFData(
     assert len(image_paths) == len(
         questions
     ), "The number of images and questions must be equal"
-
+    
     # Create dictionary data
     merged_samples = {"images": [], "inputs": [], "targets": []}
     for image_path, question in zip(image_paths, questions):
         merged_samples["images"].append(image_path)
         merged_samples["inputs"].append(question)
         merged_samples["targets"].append("net")
-
+    
     dataset = tf.data.Dataset.from_tensor_slices(merged_samples)
-
+    
     # Fix assert error in text_preprocessor create by seqio
     def _images_expand_dims(inputs_data):
         inputs_data["images"] = tf.expand_dims(inputs_data["images"], axis=0)
         return inputs_data
-
+    
     dataset = dataset.map(_images_expand_dims, num_parallel_calls=tf.data.AUTOTUNE)
-
+    
     # Pre-process text: tokenize, append eos, map to vocab ids
     _text_preprocessing = [
         seqio.preprocessors.tokenize,
@@ -357,13 +357,13 @@ def getInferenceTFData(
     dataset = _text_features_converter_cls(
         dataset, task_feature_lengths=_text_feature_lengths
     )
-
+    
     # Load image, resize, rescale
     def _image_PIL_preprocessing(path):
         img = Image.open(path.decode("utf-8")).resize(resize).convert("RGB")
         img = np.array(img, dtype="float32") * rescale
         return img
-
+    
     def _image_preprocessing(inputs_data):
         img_path = inputs_data["images"]
         # Unsqueeze image path
@@ -371,9 +371,9 @@ def getInferenceTFData(
         img = tf.numpy_function(_image_PIL_preprocessing, [img_path], tf.float32)
         inputs_data["images"] = img
         return inputs_data
-
+    
     dataset = dataset.map(_image_preprocessing, num_parallel_calls=tf.data.AUTOTUNE)
-
+    
     # Modify return value
     def _return_dataset(inputs_data):
         return {
@@ -382,10 +382,10 @@ def getInferenceTFData(
             "decoder_input_tokens": inputs_data["decoder_input_tokens"],
             "decoder_target_tokens": inputs_data["decoder_target_tokens"],
         }
-
+    
     dataset = dataset.map(_return_dataset, num_parallel_calls=tf.data.AUTOTUNE)
-
+    
     # Add batch size
     dataset = dataset.batch(batch_size)
-
+    
     return dataset.as_numpy_iterator(), questions

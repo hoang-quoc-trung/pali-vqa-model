@@ -7,15 +7,15 @@ import numpy as np
 def precook(s, n=4, out=False):
     """
     Precook a text by counting n-grams.
-
+    
     Args:
         s (str): The input text.
         n (int): The maximum n-gram size. Defaults to 4.
         out (bool): Whether to output the n-gram counts. Defaults to False.
-
+    
     Returns:
         dict or None: If `out` is True, returns a dictionary representing the counts of n-grams in the input text.
-                      Otherwise, returns None.
+                    Otherwise, returns None.
     """
     words = s.split()
     counts = defaultdict(int)
@@ -29,11 +29,11 @@ def precook(s, n=4, out=False):
 def cook_refs(refs, n=4):
     """
     Precook a list of reference texts by counting n-grams.
-
+    
     Args:
         refs (list): A list of reference texts.
         n (int): The maximum n-gram size. Defaults to 4.
-
+    
     Returns:
         list: A list of dictionaries, where each dictionary represents the counts of n-grams in a reference text.
     """
@@ -43,11 +43,11 @@ def cook_refs(refs, n=4):
 def cook_test(test, n=4):
     """
     Precook a test text by counting n-grams.
-
+    
     Args:
         test (str): The test text.
         n (int): The maximum n-gram size. Defaults to 4.
-
+    
     Returns:
         dict: A dictionary representing the counts of n-grams in the test text.
     """
@@ -61,7 +61,7 @@ class CiderScorer(object):
         new.ctest = copy.copy(self.ctest)
         new.crefs = copy.copy(self.crefs)
         return new
-
+    
     def __init__(self, test=None, refs=None, n=4, sigma=6.0):
         ''' singular instance '''
         self.n = n
@@ -74,7 +74,7 @@ class CiderScorer(object):
     
     def cook_append(self, test, refs):
         '''called by constructor and __iadd__ to avoid creating new instances.'''
-
+    
         if refs is not None:
             self.crefs.append(cook_refs(refs))
             if test is not None:
@@ -89,20 +89,20 @@ class CiderScorer(object):
     
     def __iadd__(self, other):
         '''add an instance (e.g., from another sentence).'''
-
+        
         if type(other) is tuple:
             ## avoid creating new CiderScorer instances
             self.cook_append(other[0], other[1])
         else:
             self.ctest.extend(other.ctest)
             self.crefs.extend(other.crefs)
-
+        
         return self
     
     def compute_doc_freq(self):
         '''
         Compute the document frequency for the reference data.
-
+        
         This function calculates the term frequency for the reference data, which will be used to compute the
         inverse document frequency (idf) later. The term frequency is stored in the object.
         '''
@@ -116,14 +116,14 @@ class CiderScorer(object):
         def counts2vec(cnts):
             """
             Maps counts of n-grams to a vector of tf-idf weights.
-
+            
             This function takes the counts of n-grams and returns a vector `vec`, which is an array of dictionaries.
             Each dictionary stores the mapping of an n-gram to its tf-idf weight. The n-th entry of the array denotes
             the length of n-grams.
-
+            
             Args:
                 cnts: A dictionary containing the counts of n-grams.
-
+            
             Returns:
                 vec: An array of dictionaries, representing the tf-idf weights for each n-gram length.
                 norm: An array of floats, representing the norm of each vector.
@@ -141,7 +141,7 @@ class CiderScorer(object):
                 vec[n][ngram] = float(term_freq)*(self.ref_len - df)
                 # compute norm for the vector.  the norm will be used for computing similarity
                 norm[n] += pow(vec[n][ngram], 2)
-
+                
                 if n == 1:
                     length += term_freq
             norm = [np.sqrt(n) for n in norm]
@@ -150,7 +150,7 @@ class CiderScorer(object):
         def sim(vec_hyp, vec_ref, norm_hyp, norm_ref, length_hyp, length_ref):
             """
             Compute the cosine similarity of two vectors.
-
+            
             Args:
                 vec_hyp: An array of dictionaries representing the vector corresponding to the hypothesis.
                 vec_ref: An array of dictionaries representing the vector corresponding to the reference.
@@ -158,7 +158,7 @@ class CiderScorer(object):
                 norm_ref: An array of floats representing the norm of the reference vector.
                 length_hyp: An integer containing the length of the hypothesis.
                 length_ref: An integer containing the length of the reference.
-
+            
             Returns:
                 An array of scores for each n-gram's cosine similarity.
             """
@@ -170,18 +170,18 @@ class CiderScorer(object):
                 for (ngram,count) in vec_hyp[n].items():
                     # vrama91 : added clipping
                     val[n] += min(vec_hyp[n][ngram], vec_ref[n][ngram]) * vec_ref[n][ngram]
-
+                
                 if (norm_hyp[n] != 0) and (norm_ref[n] != 0):
                     val[n] /= (norm_hyp[n]*norm_ref[n])
-
+                
                 assert(not math.isnan(val[n]))
                 # vrama91: added a length based gaussian penalty
                 val[n] *= np.e**(-(delta**2)/(2*self.sigma**2))
             return val
-
+        
         # compute log reference length
         self.ref_len = np.log(float(len(self.crefs)))
-
+        
         scores = []
         for test, refs in zip(self.ctest, self.crefs):
             # compute vector for test captions
@@ -210,8 +210,8 @@ class CiderScorer(object):
         score = self.compute_cider()
         # print score
         return np.mean(np.array(score)), np.array(score)
-    
-    
+
+
 class Cider:
     """
     Main Class to compute the CIDEr metric 
@@ -221,15 +221,15 @@ class Cider:
         self._n = n
         # set the standard deviation parameter for gaussian penalty
         self._sigma = sigma
-
+    
     def compute_cider_score(self, gts, res):
         """
         Main function to compute CIDEr score.
-
+        
         Args:
             gts (dict): A dictionary with keys as <image> and values as tokenized reference sentences.
             res (dict): A dictionary with keys as <image> and values as tokenized hypothesis/candidate sentences.
-
+        
         Returns:
             cider (float): Computed CIDEr score for the corpus.
             scores (list): List of individual CIDEr scores for each image.
@@ -246,6 +246,6 @@ class Cider:
             cider_scorer += (hypo[0], ref)
         score, scores = cider_scorer.compute_cider_score()
         return score, scores
-
+    
     def method(self):
         return compute_cider_score

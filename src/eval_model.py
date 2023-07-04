@@ -26,15 +26,15 @@ def main(args):
     cfg = yaml.safe_load(open(args.config_path))
     hpparams = cfg["hyperparams"]
     checkpoints_dir = cfg["checkpoints_dir"]
-
+    
     # Init model
     model = PaLI(cfg)
-
+    
     if not os.path.exists(args.ckpt):
         raise ValueError(f"Checkpoint file {args.ckpt} does not exist!")
     LOGGER.info(f"Loading PaLI checkpoint from {args.ckpt}")
     params = load_checkpoint(args.ckpt)
-
+    
     ds_cfg = cfg["dataset"]
     val_ds, val_ds_len = getTFDataGenerator(
         data_root=ds_cfg["validation"]["data_root"],
@@ -45,9 +45,9 @@ def main(args):
         encoder_input_tokens=hpparams['encoder_input_tokens'],
         decoder_target_tokens=hpparams['decoder_target_tokens'],
     )
-
+    
     eval_step_fn = get_eval_step(model)
-
+    
     LOGGER.info("Start evaluation on validation dataset")
     val_ds_iter = iter(val_ds)
     val_steps = val_ds_len // args.batch_size

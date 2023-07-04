@@ -42,8 +42,11 @@ def main(args):
             args.input_image, args.input_question
         )
     )
+    hpparams = cfg["hyperparams"]
     dataloader, questions = getInferenceTFData(
-        args.input_image, args.input_question, batch_size=1
+        args.input_image, args.input_question, batch_size=1,
+        encoder_input_tokens=hpparams['encoder_input_tokens'],
+        decoder_target_tokens=hpparams['decoder_target_tokens'],
     )
 
     infer_step_fn = get_infer_step(cfg, model)
@@ -73,19 +76,19 @@ if __name__ == "__main__":
     parser.add_argument(
         "--input_image",
         type=str,
-        default="/kaggle/input/coco-vqa-val/val/val2014/COCO_val2014_000000000042.jpg",
+        default="/kaggle/input/coco-textcaps-textvqa/tran_val_dataset/images/0000599864fd15b3.jpg",
         help="Path to the input image",
     )
     parser.add_argument(
         "--input_question",
         type=str,
-        default="What is this photo taken looking through?",
+        default="Generate the caption for the photo",
         help="Input question",
     )
     parser.add_argument(
         "--ckpt",
         type=str,
-        default="/kaggle/working/PaLI-model/src/checkpoints/20230606-091335/params.npz",
+        default="/kaggle/working/pali-model/src/checkpoints/params/params_20000.npz",
         help="Path to the checkpoint. (.npz)",
     )
     args = parser.parse_args()

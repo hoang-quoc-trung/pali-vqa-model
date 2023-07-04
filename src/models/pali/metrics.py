@@ -10,10 +10,10 @@ cider = Cider()
 @jax.jit
 def argmax_logits(logits):
     """Compute the index of the maximum logit value along the last axis.
-
+    
     Args:
         logits (jax.ndarray): Logits tensor.
-
+    
     Returns:
         jax.ndarray: Index of the maximum logit value along the last axis.
     """
@@ -22,11 +22,11 @@ def argmax_logits(logits):
 
 def convert_to_text(logit_tokens, target_tokens):
     """Convert tokenized logit and target sequences to text.
-
+    
     Args:
         logit_tokens (List[List[int]]): List of logit token sequences.
         target_tokens (List[List[int]]): List of target token sequences.
-
+    
     Returns:
         Tuple[List[str], List[str]]: Tuple containing hypothesis (decoded logit sequences)
         and references (decoded target sequences).
@@ -39,11 +39,11 @@ def convert_to_text(logit_tokens, target_tokens):
 
 def bleu_score(logits, target_tokens):
     """Convert tokenized logit and target sequences to text.
-
+    
     Args:
         logit_tokens (List[List[int]]): List of logit token sequences.
         target_tokens (List[List[int]]): List of target token sequences.
-
+    
     Returns:
         Tuple[List[str], List[str]]: Tuple containing hypothesis (decoded logit sequences)
         and references (decoded target sequences).
@@ -62,11 +62,11 @@ def bleu_score(logits, target_tokens):
 
 def cider_score(logits, target_tokens):
     """Compute the CIDEr score between predicted logits and target tokens.
-
+    
     Args:
         logits (Array): Predicted logits with shape (batch_size, length, vocab).
         target_tokens (List[List[int]]): List of target token sequences.
-
+    
     Returns:
         dict: Dictionary containing the CIDEr scores.
     """
@@ -91,11 +91,11 @@ def cider_score(logits, target_tokens):
 
 def combine_metrics(logits, target_tokens):
     """Combine multiple evaluation metrics including CIDEr and BLEU scores.
-
+    
     Args:
         logits (Array): Predicted logits with shape (batch_size, 18, 32128).
         target_tokens (List[List[int]]): List of target token sequences.
-
+    
     Returns:
         Tuple[float, float]: CIDEr score and BLEU score as a tuple.
     """

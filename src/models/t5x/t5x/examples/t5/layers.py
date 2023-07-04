@@ -61,11 +61,11 @@ def dot_product_attention(
     float32_logits: bool = False
 ):
     """Computes dot-product attention given query, key, and value.
-
+    
     This is the core function for applying attention based on
     https://arxiv.org/abs/1706.03762. It calculates the attention weights given
     query and key and combines the values using the attention weights.
-
+    
     Args:
         query: queries for calculating attention with shape of `[batch, q_length,
         num_heads, qk_depth_per_head]`.
@@ -82,7 +82,7 @@ def dot_product_attention(
         dtype: the dtype of the computation (default: float32)
         float32_logits: bool, if True then compute logits in float32 to avoid
         numerical issues with bfloat16.
-
+    
     Returns:
         Output of shape `[batch, length, num_heads, v_depth_per_head]`.
     """
@@ -95,15 +95,15 @@ def dot_product_attention(
     )
     assert key.shape[-3] == value.shape[-3], 'k, v lengths must match.'
     assert query.shape[-1] == key.shape[-1], 'q, k depths must match.'
-
+    
     # Casting logits and softmax computation for float32 for model stability.
     if float32_logits:
         query = query.astype(jnp.float32)
         key = key.astype(jnp.float32)
-
+    
     # `attn_weights`: [batch, num_heads, q_length, kv_length]
     attn_weights = jnp.einsum('bqhd,bkhd->bhqk', query, key)
-
+    
     # Apply attention bias: masking, dropout, proximity bias, etc.
     if bias is not None:
         attn_weights = attn_weights + bias.astype(attn_weights.dtype)
@@ -111,7 +111,7 @@ def dot_product_attention(
     attn_weights = jnp.nan_to_num(attn_weights)
     # Normalize the attention weights across `kv_length` dimension.
     attn_weights = jax.nn.softmax(attn_weights).astype(dtype)
-
+    
     # Apply attention dropout.
     if not deterministic and dropout_rate > 0.:
         keep_prob = 1.0 - dropout_rate
@@ -123,7 +123,7 @@ def dot_product_attention(
         keep = jnp.broadcast_to(keep, attn_weights.shape)
         multiplier = (keep.astype(attn_weights.dtype) / jnp.asarray(keep_prob, dtype=dtype))
         attn_weights = attn_weights * multiplier
-
+    
     # Take the linear combination of `value`.
     return jnp.einsum('bhqk,bkhd->bqhd', attn_weights, value)
 
@@ -133,7 +133,7 @@ dynamic_vector_slice_in_dim = jax.vmap(lax.dynamic_slice_in_dim, in_axes=(None, 
 
 class MultiHeadDotProductAttention(nn.Module):
     """ Multi-head dot-product attention.
-
+    
     Attributes:
         num_heads: number of attention heads. Features (i.e. inputs_q.shape[-1])
         should be divisible by the number of heads.
@@ -144,7 +144,7 @@ class MultiHeadDotProductAttention(nn.Module):
         float32_logits: bool, if True then compute logits in float32 to avoid
         numerical issues with bfloat16.
     """
-
+    
     num_heads: int
     head_dim: int
     dtype: DType = jnp.float32
@@ -152,7 +152,7 @@ class MultiHeadDotProductAttention(nn.Module):
     kernel_init: Initializer = nn.initializers.variance_scaling(
         1.0, 'fan_in', 'normal')
     float32_logits: bool = False  # computes logits in float32 for stability.
-
+    
     @nn.compact
     def __call__(
         self,
@@ -165,22 +165,22 @@ class MultiHeadDotProductAttention(nn.Module):
         deterministic: bool = False
         ) -> Array:
         """ Applies multi-head dot product attention on the input data.
-
+        
         Projects the inputs into multi-headed query, key, and value vectors,
         applies dot-product attention and project the results to an output vector.
-
+        
         There are two modes: decoding and non-decoding (e.g., training). The mode is
         determined by `decode` argument. For decoding, this method is called twice,
         first to initialize the cache and then for an actual decoding process. The
         two calls are differentiated by the presence of 'cached_key' in the variable
         dict. In the cache initialization stage, the cache variables are initialized
         as zeros and will be filled in the subsequent decoding process.
-
+        
         In the cache initialization call, `inputs_q` has a shape [batch, length,
         q_features] and `inputs_kv`: [batch, length, kv_features]. During the
         incremental decoding stage, query, key and value all have the shape [batch,
         1, qkv_features] corresponding to a single step.
-
+        
         Args:
         inputs_q: input queries of shape `[batch, q_length, q_features]`.
         inputs_kv: key/values of shape `[batch, kv_length, kv_features]`.
@@ -188,7 +188,7 @@ class MultiHeadDotProductAttention(nn.Module):
         bias: attention bias of shape `[batch, num_heads, q_length, kv_length]`.
         decode: Whether to prepare and use an autoregressive cache.
         deterministic: Disables dropout if set to True.
-
+        
         Returns:
         output of shape `[batch, length, q_features]`.
         """
@@ -199,23 +199,23 @@ class MultiHeadDotProductAttention(nn.Module):
             kernel_axes=('embed', 'joined_kv'),
             dtype=self.dtype
         )
-
+        
         # NOTE: T5 does not explicitly rescale the attention logits by 1/sqrt(depth_kq)!
         #       This is folded into the initializers of the linear transformations, which 
         #       is equivalent under Adafactor.
         depth_scaling = jnp.sqrt(self.head_dim).astype(self.dtype)
         query_init = lambda *args: self.kernel_init(*args) / depth_scaling
-
+        
         # Project inputs_q to multi-headed q/k/v
         # dimensions are then [batch, length, num_heads, head_dim]
         query = projection(kernel_init=query_init, name='query')(inputs_q)
         key = projection(kernel_init=self.kernel_init, name='key')(inputs_kv)
         value = projection(kernel_init=self.kernel_init, name='value')(inputs_kv)
-
+        
         query = with_sharding_constraint(query, ('batch', 'length', 'heads', 'kv'))
         key = with_sharding_constraint(key, ('batch', 'length', 'heads', 'kv'))
         value = with_sharding_constraint(value, ('batch', 'length', 'heads', 'kv'))
-
+        
         if decode:
             # Detect if we're initializing by absence of existing cache data.
             is_initialized = self.has_variable('cache', 'cached_key')
@@ -249,7 +249,7 @@ class MultiHeadDotProductAttention(nn.Module):
                         'expected query shape %s instead got %s.' %
                         (expected_shape, query.shape)
                     )
-
+                
                 # Create a OHE of the current index. NOTE: the index is increased below.
                 cur_index = cache_index.value
                 one_hot_indices = jax.nn.one_hot(cur_index, length, dtype=key.dtype)
@@ -271,7 +271,7 @@ class MultiHeadDotProductAttention(nn.Module):
                 # Move the keys and values back to their original shapes.
                 key = jnp.moveaxis(key, -1, -3)
                 value = jnp.moveaxis(value, -1, -3)
-
+                
                 # Causal mask for cached decoder self-attention: our single query
                 # position should only attend to those key positions that have already
                 # been generated and cached, not the remaining zero elements.
@@ -286,7 +286,7 @@ class MultiHeadDotProductAttention(nn.Module):
                         (batch, 1, 1, length)
                     )
                 )
-
+                
                 # Grab the correct relative attention bias during decoding. This is
                 # only required during single step decoding.
                 if bias is not None:
@@ -299,7 +299,7 @@ class MultiHeadDotProductAttention(nn.Module):
                         1, 
                         -2,
                     )
-
+        
         # Convert the boolean attention mask to an attention bias.
         if mask is not None:
             # attention mask in the form of attention bias
@@ -310,15 +310,15 @@ class MultiHeadDotProductAttention(nn.Module):
             )
         else:
             attention_bias = None
-
+        
         # Add provided bias term (e.g. relative position embedding).
         if bias is not None:
             attention_bias = combine_biases(attention_bias, bias)
-
+        
         dropout_rng = None
         if not deterministic and self.dropout_rate > 0.:
             dropout_rng = self.make_rng('dropout')
-
+        
         # Apply attention.
         x = dot_product_attention(
             query,
@@ -331,7 +331,7 @@ class MultiHeadDotProductAttention(nn.Module):
             dtype=self.dtype,
             float32_logits=self.float32_logits
         )
-
+        
         # Back to the original inputs dimensions.
         out = DenseGeneral(
             features=inputs_q.shape[-1],  # output dim is set to the input dim.
@@ -342,8 +342,8 @@ class MultiHeadDotProductAttention(nn.Module):
             name='out'
         )(x)
         return out
-    
-    
+
+
 def _normalize_axes(axes: Iterable[int], ndim: int) -> Tuple[int]:
     # A tuple by convention. len(axes_tuple) then also gives the rank efficiently.
     return tuple([ax if ax >= 0 else ndim + ax for ax in axes])
@@ -361,7 +361,7 @@ def _canonicalize_tuple(x):
 #------------------------------------------------------------------------------
 class DenseGeneral(nn.Module):
     """A linear transformation (without bias) with flexible axes.
-
+    
     Attributes:
         features: tuple with numbers of output features.
         axis: tuple with axes to apply the transformation on.
@@ -374,23 +374,23 @@ class DenseGeneral(nn.Module):
     kernel_init: Initializer = nn.initializers.variance_scaling(
         1.0, 'fan_in', 'truncated_normal')
     kernel_axes: Tuple[str, ...] = ()
-
+    
     @nn.compact
     def __call__(self, inputs: Array) -> Array:
         """Applies a linear transformation to the inputs along multiple dimensions.
-
+        
         Args:
         inputs: The nd-array to be transformed.
-
+        
         Returns:
         The transformed input.
         """
         features = _canonicalize_tuple(self.features)
         axis = _canonicalize_tuple(self.axis)
-
+        
         inputs = jnp.asarray(inputs, self.dtype)
         axis = _normalize_axes(axis, inputs.ndim)
-
+        
         kernel_shape = tuple([inputs.shape[ax] for ax in axis]) + features
         kernel_param_shape = (
             np.prod([inputs.shape[ax] for ax in axis]),
@@ -405,7 +405,7 @@ class DenseGeneral(nn.Module):
         )
         kernel = jnp.asarray(kernel, self.dtype)
         kernel = jnp.reshape(kernel, kernel_shape)
-
+        
         contract_ind = tuple(range(0, len(axis)))
         return lax.dot_general(inputs, kernel, ((axis, contract_ind), ((), ())))
 
@@ -429,7 +429,7 @@ def _convert_to_activation_function(
 
 class MlpBlock(nn.Module):
     """Transformer MLP / feed-forward block.
-
+    
     Attributes:
         intermediate_dim: Shared dimension of hidden layers.
         activations: Type of activations for each layer.  Each element is either
@@ -445,7 +445,7 @@ class MlpBlock(nn.Module):
         1.0, 'fan_in', 'truncated_normal')
     intermediate_dropout_rate: float = 0.1
     dtype: Any = jnp.float32
-
+    
     @nn.compact
     def __call__(self, inputs, decode: bool = False, deterministic: bool = False):
         """Applies Transformer MlpBlock module."""
@@ -463,7 +463,7 @@ class MlpBlock(nn.Module):
             )(inputs)
             x = _convert_to_activation_function(act_fn)(x)
             activations.append(x)
-
+        
         # Take elementwise product of above intermediate activations.
         x = functools.reduce(operator.mul, activations)
         # Apply dropout and final dense output projection.
@@ -484,7 +484,7 @@ class MlpBlock(nn.Module):
 
 class Embed(nn.Module):
     """A parameterized function from integers [0, n) to d-dimensional vectors.
-
+    
     Attributes:
         num_embeddings: number of embeddings.
         features: number of feature dimensions for each embedding.
@@ -501,7 +501,7 @@ class Embed(nn.Module):
     embedding_init: Initializer = default_embed_init
     one_hot: bool = False
     embedding: Array = dataclasses.field(init=False)
-
+    
     def setup(self):
         self.embedding = param_with_axes(
             'embedding',
@@ -509,13 +509,13 @@ class Embed(nn.Module):
             jnp.float32,
             axes=('vocab', 'embed')
         )
-
+    
     def __call__(self, inputs: Array) -> Array:
         """ Embeds the inputs along the last dimension.
-
+        
         Args:
         inputs: input data, all dimensions are considered batch dimensions.
-
+        
         Returns:
         Output which is embedded input data.  The output shape follows the input,
         with an additional `features` dimension appended.
@@ -532,14 +532,14 @@ class Embed(nn.Module):
             output = jnp.asarray(self.embedding, self.dtype)[inputs]
             output = with_sharding_constraint(output, ('batch', 'length', 'embed'))
         return output
-
+    
     def attend(self, query: Array) -> Array:
         """ Attend over the embedding using a query array.
-
+        
         Args:
         query: array with last dimension equal the feature depth `features` of the
             embedding.
-
+        
         Returns:
         An array with final dim `num_embeddings` corresponding to the batched
         inner-product of the array of query vectors against each embedding.
@@ -552,7 +552,7 @@ class Embed(nn.Module):
 
 class RelativePositionBiases(nn.Module):
     """Adds T5-style relative positional embeddings to the attention logits.
-
+    
     Attributes:
         num_buckets: Number of buckets to bucket distances between key and query
         positions into.
@@ -568,7 +568,7 @@ class RelativePositionBiases(nn.Module):
     num_heads: int
     dtype: Any
     embedding_init: Callable[..., Array] = nn.linear.default_embed_init
-
+    
     @staticmethod
     def _relative_position_bucket(
         relative_position,
@@ -577,7 +577,7 @@ class RelativePositionBiases(nn.Module):
         max_distance=128
     ):
         """ Translate relative position to a bucket number for relative attention.
-
+        
         The relative position is defined as memory_position - query_position, i.e.
         the distance in tokens from the attending position to the attended-to
         position.  If bidirectional=False, then positive relative positions are
@@ -588,13 +588,13 @@ class RelativePositionBiases(nn.Module):
         positions <=-max_distance map to the same bucket.  This should allow for
         more graceful generalization to longer sequences than the model has been
         trained on.
-
+        
         Args:
         relative_position: an int32 array
         bidirectional: a boolean - whether the attention is bidirectional
         num_buckets: an integer
         max_distance: an integer
-
+        
         Returns:
         a Tensor with the same shape as relative_position, containing int32
             values in the range [0, num_buckets)
@@ -617,17 +617,17 @@ class RelativePositionBiases(nn.Module):
         val_if_large = np.minimum(val_if_large, num_buckets - 1)
         ret += np.where(is_small, n, val_if_large)
         return ret
-
+    
     @nn.compact
     def __call__(self, qlen, klen, bidirectional=True):
         """ Produce relative position embedding attention biases.
-
+        
         Args:
         qlen: attention query length.
         klen: attention key length.
         bidirectional: whether to allow positive memory-query relative position
             embeddings.
-
+        
         Returns:
         output: `(1, len, q_len, k_len)` attention bias
         """
@@ -647,7 +647,7 @@ class RelativePositionBiases(nn.Module):
             jnp.float32,
             axes=('heads', 'relpos_buckets')
         )
-
+        
         relative_attention_bias = jnp.asarray(relative_attention_bias, self.dtype)
         # Instead of using a slow gather, we create a leading-dimension one-hot
         # array from rp_bucket and use it to perform the gather-equivalent via a
@@ -678,7 +678,7 @@ class LayerNorm(nn.Module):
     epsilon: float = 1e-6
     dtype: Any = jnp.float32
     scale_init: Initializer = nn.initializers.ones
-
+    
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         """Applies layer normalization on the input."""
@@ -693,11 +693,11 @@ class LayerNorm(nn.Module):
             jnp.float32,
             axes=('embed',)
         )
-
+        
         scale = jnp.asarray(scale, self.dtype)
         return y * scale
-    
-    
+
+
 #------------------------------------------------------------------------------
 # Mask-making utility functions.
 #------------------------------------------------------------------------------
@@ -709,11 +709,11 @@ def make_attention_mask(
     dtype: DType = jnp.float32
 ) -> Array:
     """Mask-making helper for attention weights.
-
+    
     In case of 1d inputs (i.e., `[batch, len_q]`, `[batch, len_kv]`, the
     attention weights will be `[batch, heads, len_q, len_kv]` and this
     function will produce `[batch, 1, len_q, len_kv]`.
-
+    
     Args:
         query_input: a batched, flat input of query_length size
         key_input: a batched, flat input of key_length size
@@ -721,7 +721,7 @@ def make_attention_mask(
         extra_batch_dims: number of extra batch dims to add singleton axes for, none
         by default
         dtype: mask return dtype
-
+    
     Returns:
         A `[batch, 1, len_q, len_kv]` shaped mask for 1d attention.
     """
@@ -732,7 +732,7 @@ def make_attention_mask(
         # [batch, len_q] -> [batch, 1, len_kv]
         jnp.expand_dims(key_input, axis=-2)
     )
-
+    
     # [batch, 1, len_q, len_kv]. This creates the head dim.
     mask = jnp.expand_dims(mask, axis=-3)
     mask = jnp.expand_dims(mask, axis=tuple(range(extra_batch_dims)))
@@ -745,21 +745,21 @@ def make_causal_mask(
     dtype: DType = jnp.float32
 ) -> Array:
     """ Make a causal mask for self-attention.
-
+    
     In case of 1d inputs (i.e., `[batch, len]`, the self-attention weights
     will be `[batch, heads, len, len]` and this function will produce a
     causal mask of shape `[batch, 1, len, len]`.
-
+    
     Note that a causal mask does not depend on the values of x; it only depends on
     the shape. If x has padding elements, they will not be treated in a special
     manner.
-
+    
     Args:
         x: input array of shape `[batch, len]`
         extra_batch_dims: number of batch dims to add singleton axes for, none by
         default
         dtype: mask return dtype
-
+    
     Returns:
         A `[batch, 1, len, len]` shaped causal mask for 1d attention.
     """
@@ -775,11 +775,11 @@ def make_causal_mask(
 
 def combine_masks(*masks: Optional[Array], dtype: DType = jnp.float32):
     """ Combine attention masks.
-
+    
     Args:
         *masks: set of attention mask arguments to combine, some can be None.
         dtype: final mask dtype
-
+    
     Returns:
         Combined mask, reduced by logical and, returns None if no masks given.
     """
@@ -797,10 +797,10 @@ def combine_masks(*masks: Optional[Array], dtype: DType = jnp.float32):
 
 def combine_biases(*masks: Optional[Array]):
     """ Combine attention biases.
-
+    
     Args:
         *masks: set of attention bias arguments to combine, some can be None.
-
+    
     Returns:
         Combined mask, reduced by summation, returns None if no masks given.
     """
@@ -822,40 +822,39 @@ def make_decoder_mask(
     decoder_segment_ids: Optional[Array] = None,
 ) -> Array:
     """ Compute the self-attention mask for a decoder.
-
+    
     Decoder mask is formed by combining a causal mask, a padding mask and an
     optional packing mask. If decoder_causal_attention is passed, it makes the
     masking non-causal for positions that have value of 1.
-
+    
     A prefix LM is applied to a dataset which has a notion of "inputs" and
     "targets", e.g., a machine translation task. The inputs and targets are
     concatenated to form a new target. `decoder_target_tokens` is the concatenated
     decoder output tokens.
-
+    
     The "inputs" portion of the concatenated sequence can attend to other "inputs"
     tokens even for those at a later time steps. In order to control this
     behavior, `decoder_causal_attention` is necessary. This is a binary mask with
     a value of 1 indicating that the position belonged to "inputs" portion of the
     original dataset.
-
+    
     Example:
-
+    
         Suppose we have a dataset with two examples.
-
+        
         ds = [{"inputs": [6, 7], "targets": [8]},
             {"inputs": [3, 4], "targets": [5]}]
-
+        
         After the data preprocessing with packing, the two examples are packed into
         one example with the following three fields (some fields are skipped for
         simplicity).
-
+        
         decoder_target_tokens = [[6, 7, 8, 3, 4, 5, 0]]
             decoder_segment_ids = [[1, 1, 1, 2, 2, 2, 0]]
         decoder_causal_attention = [[1, 1, 0, 1, 1, 0, 0]]
-
+        
         where each array has [batch, length] shape with batch size being 1. Then,
         this function computes the following mask.
-
                         mask = [[[[1, 1, 0, 0, 0, 0, 0],
                                     [1, 1, 0, 0, 0, 0, 0],
                                     [1, 1, 1, 0, 0, 0, 0],
@@ -863,14 +862,14 @@ def make_decoder_mask(
                                     [0, 0, 0, 1, 1, 0, 0],
                                     [0, 0, 0, 1, 1, 1, 0],
                                     [0, 0, 0, 0, 0, 0, 0]]]]
-
+        
         mask[b, 1, :, :] represents the mask for the example `b` in the batch.
         Because mask is for a self-attention layer, the mask's shape is a square of
         shape [query length, key length].
-
+        
         mask[b, 1, i, j] = 1 means that the query token at position i can attend to
         the key token at position j.
-
+    
     Args:
         decoder_target_tokens: decoder output tokens. [batch, length]
         dtype: dtype of the output mask.
@@ -879,7 +878,7 @@ def make_decoder_mask(
         bidirectionally. [batch, length]
         decoder_segment_ids: decoder segmentation info for packed examples. [batch,
         length]
-
+    
     Returns:
         the combined decoder mask.
     """
@@ -888,7 +887,7 @@ def make_decoder_mask(
     # i.e., the mask will be broadcast along the heads dim.
     # [batch, 1, length, length]
     causal_mask = make_causal_mask(decoder_target_tokens, dtype=dtype)
-
+    
     # Positions with value 1 in `decoder_causal_attneition` can attend
     # bidirectionally.
     if decoder_causal_attention is not None:
@@ -902,7 +901,7 @@ def make_decoder_mask(
         masks.append(jnp.logical_or(causal_mask, inputs_mask).astype(dtype))
     else:
         masks.append(causal_mask)
-
+    
     # Padding mask.
     masks.append(
         make_attention_mask(
@@ -911,7 +910,7 @@ def make_decoder_mask(
             dtype=dtype
         )
     )
-
+    
     # Packing mask
     if decoder_segment_ids is not None:
         masks.append(
@@ -922,5 +921,5 @@ def make_decoder_mask(
                 dtype=dtype
             )
         )
-
+    
     return combine_masks(*masks, dtype=dtype)

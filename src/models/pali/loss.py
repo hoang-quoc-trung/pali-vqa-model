@@ -13,22 +13,22 @@ def cross_entropy_with_logits(
     z_loss: float
 ) -> Tuple[jnp.ndarray, jnp.ndarray]:
     """Computes cross entropy loss with stable custom gradient.
-
+    
     Computes a stabilized-gradient version of:
       -jnp.sum(targets * nn.log_softmax(logits), axis=-1)
-
+    
     If z_loss > 0, then an auxiliary loss equal to z_loss*log(z)^2
     will be added to the cross entropy loss (z = softmax normalization constant).
     The two uses of z_loss are:
     1. To keep the logits from drifting too far from zero, which can cause
         unacceptable roundoff errors in bfloat16.
     2. To encourage the logits to be normalized log-probabilities.
-
+    
     Args:
         logits: [batch, length, num_classes] float array.
         targets: categorical one-hot targets [batch, length, num_classes] float array.
         z_loss: coefficient for auxilliary z-loss loss term.
-
+    
     Returns:
         tuple with the total loss and the z_loss, both
         float arrays with shape [batch, length].
@@ -112,7 +112,7 @@ def compute_weighted_cross_entropy(
     loss_normalizing_factor: Optional[float] = None
 ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Compute weighted cross entropy and entropy for log probs and targets.
-
+    
     Args:
         logits: [batch, length, num_classes] float array.
         targets: categorical targets [batch, length] int array.
@@ -123,7 +123,7 @@ def compute_weighted_cross_entropy(
         loss_normalizing_factor: Constant to divide loss by. If not specified, loss
         will not be normalized. Intended for backward compatibility with T5-MTF
         training. Should not normally be used.
-
+    
     Returns:
         Tuple of scalar loss, z_loss, and weight sum.
     """
@@ -138,13 +138,13 @@ def compute_weighted_cross_entropy(
     soft_targets = common_utils.onehot(targets, vocab_size, on_value=confidence, off_value=low_confidence)
     total_loss, total_z_loss = cross_entropy_with_logits(logits, soft_targets, z_loss=z_loss)
     total_loss = total_loss - normalizing_constant
-
+    
     weight_sum = np.prod(targets.shape)
     if weights is not None:
         total_loss = total_loss * weights
         total_z_loss = total_z_loss * weights
         weight_sum = jnp.sum(weights)
-
+    
     # By default, we do not normalize loss based on anything.
     # We don't normalize based on batch size because the optimizers we use are
     # pretty much scale invariant, so this simplifies things.
@@ -159,7 +159,7 @@ def compute_weighted_cross_entropy(
 @enum.unique
 class SpecialLossNormalizingFactor(enum.Enum):
     """Specially calculated loss_normalizing_factors, that are not a constant.
-
+    
     Attributes:
         - NUM_REAL_TARGET_TOKENS: Whether to divide the loss by the number of real
         (non-padding) tokens in the current target batch. If
@@ -183,13 +183,13 @@ def convert_special_loss_normalizing_factor_to_enum(
     x: str
 ) -> SpecialLossNormalizingFactor:
     """Converts stringified version of LNF to an enum.
-
+    
     This is useful because gin dynamic registration does not (currently)
     have support for enum.
-
+    
     Args:
         x: stringified version of SpecialLossNormalizingFactor enum.
-
+    
     Returns:
         SpecialLossNormalizingFactor enum instance.
     """
@@ -211,17 +211,17 @@ def _sum_weights_per_segment(
     weights: jnp.ndarray
 ) -> jnp.ndarray:
     """Sums weights per packed segment to produce a normalizing vector."""
-
+    
     # NB: Assumes padding only occurs at the end of a sequence.
     
     def _repeat_last_nonnegative(xs, reverse=False):
-
+    
         def fn(prev, x):
             y = jnp.where(x == 0, prev, x)
             return y, y
-
+        
         return jax.lax.scan(fn, jnp.zeros_like(xs[0]), xs, reverse=reverse)[1]
-
+    
     # Compute final positions per sequence.
     start_positions = positions == 0
     final_positions = jnp.concatenate([start_positions[1:], jnp.ones(1)])
@@ -245,39 +245,39 @@ def get_loss_normalizing_factor_and_weights(
     batch,
 ):
     """Get the float loss_normalizing_factor and loss weights.
-
+    
     If loss_normalizing_factor is float or None, this will simply return the
     input loss_normalizing_factor and batch.
-
+    
     If loss_normalizing_factor is a SpecialLossNormalizingFactor, it will
     return a float loss_normalizing_factor and loss weights corresponding to
     the special LNF. See SpecialLossNormalizingFactor for more details.
-
+    
     Args:
         loss_normalizing_factor: The input LNF, which may be a float, None, or
         SpecialLossNormalizingFactor (or a stringified SLNF).
         loss_weights: Loss is computed for all but the padding positions.
         batch: Input data batch.
-
+    
     Returns:
         Tuple of (output_loss_normalizing_factor, loss_weights).
         'output_loss_normalizing_factor' is a scalar float (Python float
         or jnp float).
         'loss_weights' is the per token loss weight JNP array.
     """
-
+    
     if (loss_normalizing_factor is None or not isinstance(
             loss_normalizing_factor,
             (str, SpecialLossNormalizingFactor)
         )
     ):
         return (loss_normalizing_factor, loss_weights)
-
+    
     if isinstance(loss_normalizing_factor, str):
         loss_normalizing_factor = convert_special_loss_normalizing_factor_to_enum(
             loss_normalizing_factor
         )
-
+    
     # If `loss_weights` are not provided, we assume that the padding id is 0 and
     # that non-padding tokens in the decoder all correspond to the positions
     # where loss should be taken. If more fine-grained behavior (e.g., taking
@@ -285,7 +285,7 @@ def get_loss_normalizing_factor_and_weights(
     # `loss_weights` that account for this.
     if loss_weights is None:
         loss_weights = jnp.asarray(batch['decoder_target_tokens'] > 0, jnp.float32)
-
+    
     output_normalizing_factor = None
     if (loss_normalizing_factor == SpecialLossNormalizingFactor.NUM_REAL_TARGET_TOKENS):
         output_normalizing_factor = jnp.sum(loss_weights)
@@ -311,5 +311,5 @@ def get_loss_normalizing_factor_and_weights(
     else:
         raise ValueError('Unsupported value of loss_normalizing_factor: %s' %
                         str(loss_normalizing_factor))
-
+    
     return (output_normalizing_factor, loss_weights)

@@ -44,12 +44,12 @@ def main(args):
     assert os.path.exists(
         args.config_path
     ), f"Config file {args.config_path} does not exist!"
-
+    
     # Hardware setting
     num_devices = jax.device_count()
     device = hardware_setting(args)
     LOGGER.info("Training on: {} {}".format(num_devices, device))
-
+    
     # Load the config file
     cfg = yaml.safe_load(open(args.config_path))
     cfg["checkpoints_dir"]["save_state"] = os.path.join(
@@ -58,12 +58,12 @@ def main(args):
     )
     hpparams = cfg["hyperparams"]
     checkpoints_dir = cfg["checkpoints_dir"]
-
+    
     # PaLi model
     LOGGER.info("Init PaLI model parameters")
     model = PaLI(cfg)
     variables = init_pali_params(cfg, model, args.seed)
-
+    
     # Load pretrained model
     LOGGER.info("Loading ViT pretrained model")
     variables = load_ViT_pretrained(cfg, variables)
@@ -73,7 +73,7 @@ def main(args):
     # Init wandb
     LOGGER.info("Init WanDB")
     init_wandb(cfg)
-
+    
     # Create train state
     if os.path.exists(checkpoints_dir["load_params"]):
         # Load params & opt has been trained and continue to train
@@ -95,14 +95,14 @@ def main(args):
                 ckpt_dir=checkpoints_dir["load_opt"], 
                 target=state.opt,
             )
-        
+    
     elif os.path.exists(checkpoints_dir["load_state"]):
         # Load state (model, optimizer, params) has been trained and continue to train
         LOGGER.info(
             "Restoring checkpoint (state) from {}".format(checkpoints_dir["load_state"])
         )
         state = checkpoints.restore_checkpoint(checkpoints_dir["load_state"], state)
-        
+    
     else:
         # Create new train state
         LOGGER.info("Create new train state")
@@ -161,14 +161,14 @@ def main(args):
                 )
                 pbar.update(1)
         return np.mean(val_loss), np.mean(val_cider), np.mean(val_bleu)
-
+    
     LOGGER.info("Start training...")
     """----------------------------------------- Start Training Loop -----------------------------------------"""
     
     num_steps, save_steps = hpparams["num_steps"], hpparams["save_steps"]
     val_steps = val_ds_len if hpparams["val_steps"] is None else hpparams["val_steps"]
     best_val_loss = 0.0
-    # Create iterator for train and validation dataset
+    # Create iterator for train and validation datasetnum_steps
     train_ds_iter, val_ds_iter = iter(train_ds), iter(val_ds)
     with tqdm(total=num_steps) as pbar:
         train_loss = []
@@ -223,7 +223,7 @@ def main(args):
                     # save_checkpoint_state(cfg, flax.jax_utils.unreplicate(state))
                     save_path = save_parameters(cfg, flax.jax_utils.unreplicate(state), step)
                     LOGGER.info("Save checkpoint in {}".format(save_path))          
-
+    
     # Save the final checkpoint
     # save_path = save_parameters(cfg, flax.jax_utils.unreplicate(state), step)
     # save_checkpoint_state(cfg, flax.jax_utils.unreplicate(state))

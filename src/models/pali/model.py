@@ -18,10 +18,10 @@ class Encoder(nn.Module):
     """A stack of encoder layers.
     Ref:src/models/t5x/t5x/examples/t5/network.py line 174
     """
-
+    
     config: T5Config
     shared_embedding: nn.Module
-
+    
     @nn.compact
     def __call__(
         self,
@@ -47,13 +47,13 @@ class Encoder(nn.Module):
             x, deterministic=deterministic
         )
         x = x.astype(cfg.dtype)
-
+        
         for lyr in range(cfg.num_encoder_layers):
             # [batch, length, emb_dim] -> [batch, length, emb_dim]
             x = EncoderLayer(
                 config=cfg, relative_embedding=rel_emb, name=f"layers_{lyr}"
             )(x, encoder_mask, deterministic)
-
+        
         x = layers.LayerNorm(dtype=cfg.dtype, name="encoder_norm")(x)
         x = nn.Dropout(rate=cfg.dropout_rate)(x, deterministic=deterministic)
         # Add patch_vit_embs to x
@@ -67,7 +67,7 @@ class Encoder(nn.Module):
 class MergeT5(T5):
     """A T5 model with text and image inputs.
     Ref:src/models/t5x/t5x/examples/t5/network.py line 278"""
-
+    
     def setup(self):
         cfg = self.config
         self.shared_embedding = layers.Embed(
@@ -79,10 +79,10 @@ class MergeT5(T5):
             one_hot=True,
             name="token_embedder",
         )
-
+        
         self.encoder = Encoder(config=cfg, shared_embedding=self.shared_embedding)
         self.decoder = Decoder(config=cfg, shared_embedding=self.shared_embedding)
-
+    
     def encode(
         self,
         encoder_input_tokens,
@@ -110,14 +110,14 @@ class MergeT5(T5):
                     encoder_segment_ids, encoder_segment_ids, jnp.equal, dtype=cfg.dtype
                 ),
             )
-
+        
         return self.encoder(
             encoder_input_tokens,
             patch_vit_embs,
             encoder_mask,
             deterministic=not enable_dropout,
         )
-
+    
     def __call__(
         self,
         encoder_input_tokens,
@@ -133,12 +133,12 @@ class MergeT5(T5):
         decode: bool = False,
     ):
         """Applies Transformer model on the inputs.
-
+        
         This method requires both decoder_target_tokens and decoder_input_tokens,
         which is a shifted version of the former. For a packed dataset, it usually
         has additional processing applied. For example, the first element of each
         sequence has id 0 instead of the shifted EOS id from the previous sequence.
-
+        
         Args:
         encoder_input_tokens: input data to the encoder.
         decoder_input_tokens: input token to the decoder.
@@ -150,7 +150,7 @@ class MergeT5(T5):
         decoder_positions: decoder subsequence positions for packed examples.
         enable_dropout: Ensables dropout if set to True.
         decode: Whether to prepare and use an autoregressive cache.
-
+        
         Returns:
         logits array from full transformer.
         """
@@ -160,7 +160,7 @@ class MergeT5(T5):
             encoder_segment_ids=encoder_segment_ids,
             enable_dropout=enable_dropout,
         )
-
+        
         return self.decode(
             encoded,
             jnp.concatenate(
@@ -184,7 +184,7 @@ class PaLI(nn.Module):
     config: dict
     vit_pretrained_path: str = None
     t5_pretrained_path: str = None
-
+    
     def setup(self):
         # Vision transformer initialization
         vit_cfg, t5_cfg = unfreeze(self.config["vit"]), unfreeze(self.config["t5"])
@@ -192,7 +192,7 @@ class PaLI(nn.Module):
         vit_model_config.classifier = vit_cfg["classifier"]
         # Model name will be VisionTransformer_0
         self.VisionTransformer_0 = ViT(None, **vit_model_config)
-
+        
         # T5 model initialization
         gin.parse_config_file(t5_cfg["gin_file"])
         config = gin.get_bindings("t5x.examples.t5.network.T5Config")
@@ -200,7 +200,7 @@ class PaLI(nn.Module):
         config['dtype'] = jnp.bfloat16
         # Model name will be MergeT5_0
         self.MergeT5_0 = MergeT5(T5Config(**config))
-
+    
     def __call__(
         self,
         images,
@@ -212,7 +212,7 @@ class PaLI(nn.Module):
         decode=False,
     ):
         patch_embs = self.VisionTransformer_0(images, train=enable_dropout)
-
+        
         outputs = self.MergeT5_0(
             encoder_input_tokens,
             decoder_input_tokens,
@@ -222,20 +222,20 @@ class PaLI(nn.Module):
             decode=decode,
         )
         return {"logits": outputs, "patch_embs": patch_embs}
-
+    
     def encode(self, *args, **kwargs):
         return self.MergeT5_0.encode(*args, **kwargs)
-
+    
     def decode(self, *args, **kwargs):
         return self.MergeT5_0.decode(*args, **kwargs)
 
 
 def get_vit_pretrained(config: dict):
     """Loads pretrained ViT model
-
+    
     Args:
         config (dict): config file load from yaml
-
+    
     Returns:
         dict: pretrained ViT model
     """
@@ -278,10 +278,10 @@ def get_vit_pretrained(config: dict):
 
 def get_t5x_pretrained(config: dict):
     """Load pretrained T5x model
-
+    
     Args:
         config (dict): config file load from yaml
-
+    
     Returns:
         dict: pretrained T5 model
     """
@@ -294,7 +294,7 @@ def get_t5x_pretrained(config: dict):
     config = T5Config(**config)
     t5_model = T5(config)
     rng = PRNGKey(0)
-
+    
     # Init variables
     dummy_inputs = {
         "encoder_input_tokens": jnp.ones(
@@ -308,13 +308,13 @@ def get_t5x_pretrained(config: dict):
         ),
     }
     variables = t5_model.init(rng, **dummy_inputs, enable_dropout=False)
-
+    
     # Load pretrained weights
     nest_asyncio.apply()
     t5_ckpt = load_t5x_checkpoint(t5_cfg["pretrained_path"])
-
+    
     variables = variables.unfreeze()
     variables["params"] = t5_ckpt["target"]
     variables = freeze(variables)
-
+    
     return variables
