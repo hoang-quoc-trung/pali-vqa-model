@@ -1,8 +1,8 @@
 import argparse
 import logging
 import os
-
 import gradio as gr
+from PIL import Image
 import yaml
 from src.data.make_dataset import getInferenceTFData
 from src.models.pali import PaLI
@@ -29,18 +29,22 @@ def main(args):
     hardware_setting(args)
     # Load the config file
     cfg = yaml.safe_load(open(args.config_path))
-
     # Init model
     model = PaLI(cfg)
-
     if not os.path.exists(args.ckpt):
         raise ValueError(f"Checkpoint file {args.ckpt} does not exist!")
     LOGGER.info(f"Loading PaLI checkpoint from {args.ckpt}")
     params = load_checkpoint(args.ckpt)
-    
     infer_step_fn = get_infer_step(cfg, model)
     hpparams = cfg["hyperparams"]
+    
+    
     def inference(input_image, input_question, batch_size=1):
+        if not input_image.endswith('.jpg'):
+            im = Image.open(input_image)
+            rgb_im = im.convert('RGB')
+            input_image = input_image.replace('.png', '.jpg')
+            rgb_im.save(str(input_image), "JPEG")
         dataloader, questions = getInferenceTFData(
             image_paths=input_image,
             questions=input_question,
@@ -63,20 +67,21 @@ def main(args):
                 )
         return str(result[0])
     
+    
     def clear_inputs():
         return None, None, None
+    
     
     block = gr.Blocks().queue()
     with block:
         with gr.Row():
             gr.Markdown(
                 """
-                <p align='center' style='font-size: 25px;'>PaLI Model (Pathways Language and Image Model)</p>
+                <p align='center' style='font-size: 25px;'>PaLI Model (Pathways Language and Image Model) </p>
                 """
-                
             )
         with gr.Row():
-            input_image = gr.Image(source='upload', type="filepath")
+            input_image = gr.Image(source='upload', type="filepath", label="Image")
         with gr.Row():
             input_question = gr.Textbox(label="Question")
         with gr.Row():
@@ -84,27 +89,31 @@ def main(args):
             with gr.Column():
                 clear_button = gr.Button("Clear")
         with gr.Row():
-            output_answer = gr.Textbox(label="Answer", interactive=True)
-        # Example image
+            output_answer = gr.Textbox(label="Answer")
+
         gr.Examples(
             examples=[
-                "https://farm3.staticflickr.com/8673/16416250538_594bcb48d2_o.jpg",
-                "https://s3.geograph.org.uk/geophotos/06/21/24/6212487_1cca7f3f_1024x1024.jpg",
-                "https://farm7.staticflickr.com/2092/2209967213_d34f6cbd17_o.jpg",
-                "https://c1.staticflickr.com/5/4147/5209877862_a1de7ee298_o.jpg",
-                "https://farm7.staticflickr.com/7344/10624473206_2f93e40bef_o.jpg",
-                "https://c2.staticflickr.com/6/5181/5660491676_4844ef43ab_o.jpg",
-                "https://farm2.staticflickr.com/3876/14701969871_397bbd5ae6_o.jpg"
+                ["src/data/test_images/img_1.jpg", "How many people are in the picture?"],
+                ["src/data/test_images/img_2.jpg", "What is the name of this plane?"],
+                ["src/data/test_images/img_3.jpg", "What animal is grazing?"],
+                ["src/data/test_images/img_4.jpg", "What color is the sofa?"],
+                ["src/data/test_images/img_5.jpg", "What food is on the plate?"],
+                ["src/data/test_images/img_6.jpg", "What animal is this?"],
+                ["src/data/test_images/img_7.jpg", "What season is it?"],
+                ["src/data/test_images/img_8.jpg", "Generate caption for the photo "],
             ],
-            inputs=input_image,
+            inputs=[input_image, input_question],
             outputs=None,
             fn=None,
             cache_examples=False,
+            examples_per_page=4,
         )
-        ips = [input_image, input_question]
-        run_button.click(fn=inference, inputs=ips, outputs=output_answer)
+        
+        run_button.click(fn=inference, inputs=[input_image, input_question], outputs=output_answer)
         clear_button.click(fn=clear_inputs, inputs=None, outputs=[input_image, input_question, output_answer])
+    
     block.launch(server_name='0.0.0.0', debug=True, share=True)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="PaLI training script")
@@ -118,7 +127,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--ckpt",
         type=str,
-        default="src/checkpoints/params/params_32000.npz",
+        default="./src/checkpoints/params.npz",
         help="Path to the checkpoint. (.npz)",
     )
     args = parser.parse_args()

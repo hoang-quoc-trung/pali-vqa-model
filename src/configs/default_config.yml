@@ -3,36 +3,35 @@ dataset:
   shuffle_data: True
   add_eos: True
   training:
-    data_root: '/kaggle/input/big-vqa-train/coco_textvqa/imgs'
-    csv_file: '/kaggle/input/big-vqa-train/train.csv'
+    data_root: '/kaggle/input/coco-textcaps-textvqa/tran_val_dataset/images'
+    csv_file: '/kaggle/input/coco-textcaps-textvqa/train_caps_vqa.csv'
   validation:
-    data_root: '/kaggle/input/coco-vqa-val/val/val2014'
-    csv_file: '/kaggle/input/coco-vqa-val/val/val.csv'
+    data_root: '/kaggle/input/coco-textcaps-textvqa/tran_val_dataset/images'
+    csv_file: '/kaggle/input/coco-textcaps-textvqa/val_caps_vqa.csv'
   testing:
     data_root: '...'
     csv_file: '...'
 
 hyperparams:
   image_size: [224, 224]
-  encoder_input_tokens: 38
-  decoder_input_tokens: 18
-  decoder_target_tokens: 18
+  encoder_input_tokens: 50
+  decoder_input_tokens: 50
+  decoder_target_tokens: 50
   optimizer_name: adafactor
   learning_rate: 0.001
   clipping_threshold: 1.0
   train_batch_size: 64
   val_batch_size: 64
   save_best: False
-  num_steps: 16000
+  num_steps: 50000000
   save_steps: 2000
-  val_steps: 200
-  freeze_vit: True
+  val_steps: 100
+  freeze_vit: False
 
 checkpoints_dir:
-  save_state: '/kaggle/working/pali-model/src/checkpoints/train_state'
-  save_params: '/kaggle/working/pali-model/src/checkpoints/params'
-  save_history: '/kaggle/working/pali-model/src/checkpoints/history_log'
-  save_opt: '/kaggle/working/pali-model/src/checkpoints/optimizer_state'
+  save_state: '/kaggle/working'
+  save_params: '/kaggle/working'
+  save_history: '/kaggle/working'
   load_params: '...'
   load_opt: '...'
   load_state: '...'
