@@ -64,19 +64,8 @@ def main(args):
     model = PaLI(cfg)
     variables = init_pali_params(cfg, model, args.seed)
     
-    # Load pretrained model
-    LOGGER.info("Loading ViT pretrained model")
-    variables = load_ViT_pretrained(cfg, variables)
-    LOGGER.info("Loading Flan-T5 pretrained model")
-    variables = load_T5x_pretrained(cfg, variables)
-    
-    # Init wandb
-    LOGGER.info("Init WanDB")
-    init_wandb(cfg)
-    
-    # Create train state
+    # Load params has been trained and continue to train
     if os.path.exists(checkpoints_dir["load_params"]):
-        # Load params & opt has been trained and continue to train
         LOGGER.info(
             "Restoring params & opt from {}".format(checkpoints_dir["load_params"])
         )
@@ -89,22 +78,19 @@ def main(args):
             variables,
             optimizer_name=hpparams["optimizer_name"],
         )
-        # Load optimizer
-        if os.path.exists(checkpoints_dir["load_opt"]):
-            state = checkpoints.restore_checkpoint(
-                ckpt_dir=checkpoints_dir["load_opt"], 
-                target=state.opt,
-            )
-    
+    # Load state (model, optimizer, params) has been trained and continue to train
     elif os.path.exists(checkpoints_dir["load_state"]):
-        # Load state (model, optimizer, params) has been trained and continue to train
         LOGGER.info(
             "Restoring checkpoint (state) from {}".format(checkpoints_dir["load_state"])
         )
         state = checkpoints.restore_checkpoint(checkpoints_dir["load_state"], state)
-    
+    # Create new train state
     else:
-        # Create new train state
+        # Load ViT & T5 pretrained model
+        LOGGER.info("Loading ViT pretrained model")
+        variables = load_ViT_pretrained(cfg, variables)
+        LOGGER.info("Loading Flan-T5 pretrained model")
+        variables = load_T5x_pretrained(cfg, variables)
         LOGGER.info("Create new train state")
         state = create_train_state(
             cfg,
@@ -112,7 +98,13 @@ def main(args):
             variables,
             optimizer_name=hpparams["optimizer_name"],
         )
+    
+    # Replicate the state across multiple GPUs
     state = flax.jax_utils.replicate(state)
+    
+    # Init wandb
+    LOGGER.info("Init WanDB")
+    init_wandb(cfg)
     
     # Set batch_size based on number of devices
     train_batch_size = hpparams['train_batch_size']*num_devices
@@ -162,9 +154,8 @@ def main(args):
                 pbar.update(1)
         return np.mean(val_loss), np.mean(val_cider), np.mean(val_bleu)
     
-    LOGGER.info("Start training...")
     """----------------------------------------- Start Training Loop -----------------------------------------"""
-    
+    LOGGER.info("Start training...")
     num_steps, save_steps = hpparams["num_steps"], hpparams["save_steps"]
     val_steps = val_ds_len if hpparams["val_steps"] is None else hpparams["val_steps"]
     best_val_loss = 0.0

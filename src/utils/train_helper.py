@@ -335,8 +335,8 @@ def _train_step(state: train_state.TrainState, batch, decoder_loss_weights):
             logits=outputs["logits"],
             targets=batch['decoder_target_tokens'],
             weights=weights,
-            label_smoothing=0.1,
-            z_loss=0.0001,
+            label_smoothing=0.0,
+            z_loss=0.0,
             loss_normalizing_factor=loss_normalizing_factor,
         )
         return loss, outputs["logits"]
@@ -440,8 +440,8 @@ def train_step_multi_gpu(state: train_state.TrainState, batch, decoder_loss_weig
             logits=outputs["logits"],
             targets=batch['decoder_target_tokens'],
             weights=weights,
-            label_smoothing=0.1,
-            z_loss=0.0001,
+            label_smoothing=0.0,
+            z_loss=0.0,
             loss_normalizing_factor=loss_normalizing_factor,
         )
         return loss, outputs["logits"]
@@ -472,7 +472,6 @@ def eval_step_multi_gpu(state: train_state.TrainState, batch, decoder_loss_weigh
     Returns:
         loss: The calculated loss for the step.
     """
-    dropout_key = jax.random.PRNGKey(seed=0)
     outputs = state.apply_fn(state.params, **batch, enable_dropout=False)
     (loss_normalizing_factor, weights) = get_loss_normalizing_factor_and_weights(
         loss_normalizing_factor=SpecialLossNormalizingFactor.NUM_REAL_TARGET_TOKENS,
